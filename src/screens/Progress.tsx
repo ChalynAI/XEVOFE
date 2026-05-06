@@ -442,12 +442,17 @@ export function ProgressScreen() {
   }, [showActionSheetWithOptions])
 
   return (
-    <View style={[styles.root, { paddingBottom: insets.bottom + 8 }]}>
+    <View style={styles.root}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollInner,
-          { paddingHorizontal: horizontalPad, paddingTop: insets.top + 12 },
+          {
+            paddingHorizontal: horizontalPad,
+            paddingTop: insets.top + 12,
+            // Keep content clear of tab bar without painting an extra bottom block.
+            paddingBottom: 32 + insets.bottom + 74,
+          },
         ]}
         showsVerticalScrollIndicator={false}
       >

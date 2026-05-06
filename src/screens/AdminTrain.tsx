@@ -366,6 +366,7 @@ type PoseLandmarksCoverageRow = {
   strokeName: string;
   status: string;
   poseFrameCount: number | null;
+  sampleCount?: number;
   poseLandmarksReady: boolean;
   updatedAt: string | null;
 };
@@ -700,10 +701,10 @@ export function AdminTrain({ onClose, skipPasswordGate }: Props) {
             <Ionicons name="chevron-back" size={16} color="rgba(255,255,255,0.72)" />
             <Text style={styles.detailBackText}>Back to admin</Text>
           </TouchableOpacity>
-          <Text style={styles.label}>Pose landmarks already trained</Text>
+          <Text style={styles.label}>Model coverage already trained</Text>
           <Text style={styles.hintBelowLabel}>
-            Videos processed by the train Modal (completed + pose frames). Green highlights match these
-            combos.
+            These are global combos the company AI model has completed pose-landmark training on.
+            Green highlights match this model coverage.
           </Text>
           {poseCoverageLoading ? (
             <ActivityIndicator color="#2ecc71" style={{ marginVertical: 12 }} />
@@ -713,7 +714,7 @@ export function AdminTrain({ onClose, skipPasswordGate }: Props) {
           ) : null}
           {!poseCoverageLoading && !poseCoverageError && poseCoverageRows.length === 0 ? (
             <Text style={styles.coverageEmptyText}>
-              No pose extractions yet for this account. Upload a clip and wait for Modal to finish.
+              No completed global pose-landmark training found yet.
             </Text>
           ) : null}
           {!poseCoverageLoading && poseCoverageRows.length > 0 ? (
@@ -723,6 +724,7 @@ export function AdminTrain({ onClose, skipPasswordGate }: Props) {
                 <Text style={[styles.coverageHeaderCell, styles.coverageColStroke]}>Stroke</Text>
                 <Text style={[styles.coverageHeaderCell, styles.coverageColLvl]}>Lvl</Text>
                 <Text style={[styles.coverageHeaderCell, styles.coverageColView]}>View</Text>
+                <Text style={[styles.coverageHeaderCell, styles.coverageColSamples]}>Samples</Text>
                 <Text style={[styles.coverageHeaderCell, styles.coverageColFrames]}>Frames</Text>
               </View>
               {poseCoverageRows.map((row) => (
@@ -743,6 +745,9 @@ export function AdminTrain({ onClose, skipPasswordGate }: Props) {
                     {row.skillLevel.slice(0, 3)}
                   </Text>
                   <Text style={[styles.coverageCell, styles.coverageColView]}>{row.viewProfile}</Text>
+                  <Text style={[styles.coverageCell, styles.coverageColSamples]}>
+                    {row.sampleCount ?? 1}
+                  </Text>
                   <Text style={[styles.coverageCell, styles.coverageColFrames]}>
                     {row.poseFrameCount ?? "—"}
                   </Text>
@@ -1264,6 +1269,7 @@ function getStyles(theme: any) {
     coverageColStroke: { flex: 1.35, paddingRight: 4 },
     coverageColLvl: { width: 34 },
     coverageColView: { width: 44 },
+    coverageColSamples: { width: 54, textAlign: "right" as const },
     coverageColFrames: { width: 40, textAlign: "right" as const },
     taxonomyPillPoseReady: {
       backgroundColor: "rgba(46, 204, 113, 0.22)",
