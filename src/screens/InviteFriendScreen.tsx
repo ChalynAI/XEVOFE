@@ -12,7 +12,6 @@ import {
   BackHandler,
   ScrollView,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { StatusBar } from "expo-status-bar";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -20,6 +19,8 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { MainStackParamList } from "../navigation/types";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ThemeContext } from "../context";
+import { Header } from "../components/Header";
+import { MainTabBarChrome } from "../components/MainTabBarChrome";
 import { LocalSvgAsset } from "../components/LocalSvgAsset";
 import { ClubBannerImage } from "../components/ClubBannerImage";
 import { ClubPfpImage } from "../components/ClubPfpImage";
@@ -27,12 +28,15 @@ import { CLUB_LIST_ROWS } from "../lib/club-detail-data";
 import { COACH_CARD_ASPECT, COACH_INVITE_CARDS } from "../lib/coach-invite-data";
 
 const INVITE_SVG = require("../../assets/youpage/invitebutton.svg");
-const SEARCH_ICON = require("../../assets/youpage/searchicon.svg");
 type InviteSegment = "friends" | "coaches" | "clubs";
 
 const TAB_ACTIVE = "#0048CD";
-const PILL_INACTIVE_BG = "#0E1830";
-const SEARCH_BORDER = "rgba(0, 184, 255, 0.45)";
+const SEGMENT_INACTIVE_BG = "#041641";
+const SEGMENT_INACTIVE_TEXT = "#00B8FF80";
+const SEARCH_BORDER = "#0066FF40";
+/** See-through search field; border carries the tint color. */
+const SEARCH_FILL = "transparent";
+const SEARCH_ICON_COLOR = "#336AB4";
 const PLACEHOLDER_BLUE = "rgba(91, 157, 255, 0.55)";
 const CLUB_PLACEHOLDER_WHITE = "rgba(255, 255, 255, 0.55)";
 
@@ -44,7 +48,6 @@ type InviteSearchNav = NativeStackNavigationProp<MainStackParamList, "InviteSear
 
 export function InviteFriendScreen() {
   const navigation = useNavigation<InviteSearchNav>();
-  const insets = useSafeAreaInsets();
   const { theme } = useContext(ThemeContext);
   const { width: winW } = useWindowDimensions();
   const styles = useMemo(() => getStyles(theme), [theme]);
@@ -98,30 +101,30 @@ export function InviteFriendScreen() {
 
   const screenBg = theme.backgroundColor ?? "#030A17";
 
+  const navigateMainTab = useCallback(
+    (screen: "AICoach" | "You") => {
+      if (screen === "You") {
+        navigation.navigate("Main", {
+          screen: "You",
+          params: { screen: "YouMain" },
+        });
+      } else {
+        navigation.navigate("Main", { screen: "AICoach" });
+      }
+    },
+    [navigation]
+  );
+
   return (
-    <View style={[styles.root, { backgroundColor: screenBg, paddingBottom: insets.bottom }]}>
+    <View style={[styles.root, { backgroundColor: screenBg }]}>
       <StatusBar style="light" />
-      <View style={[styles.modalTopBar, { paddingTop: insets.top + 4 }]}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          hitSlop={12}
-          style={styles.modalCloseHit}
-          accessibilityLabel="Close search"
-          accessibilityRole="button"
-        >
-          <Ionicons name="close" size={28} color="rgba(255,255,255,0.92)" />
-        </TouchableOpacity>
-        <Text
-          allowFontScaling={false}
-          style={[
-            styles.modalTitle,
-            { fontFamily: theme.semiBoldFont ?? theme.mediumFont ?? "System" },
-          ]}
-        >
-          Search
-        </Text>
-        <View style={styles.modalTopBarSpacer} />
-      </View>
+      <Header
+        flatOverlay
+        onBackPress={() => navigation.goBack()}
+        onLogoPress={() => navigateMainTab("AICoach")}
+        onSettingsPress={() => navigation.navigate("ProfileSettings")}
+        onNotificationsPress={() => navigation.navigate("Notifications")}
+      />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.kav}
@@ -132,12 +135,24 @@ export function InviteFriendScreen() {
           contentContainerStyle={[
             styles.scrollContent,
             scrollFooterStyle,
-            { paddingTop: 8, paddingBottom: 24 + insets.bottom },
+            { paddingTop: 8, paddingBottom: 24 },
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="on-drag"
         >
+        <View style={styles.titleRow}>
+          <Text
+            allowFontScaling={false}
+            style={[
+              styles.screenTitle,
+              { fontFamily: theme.semiBoldFont ?? theme.mediumFont ?? "System" },
+            ]}
+          >
+            Search
+          </Text>
+        </View>
+        <View style={styles.titleDivider} />
         <View style={styles.segmentRow}>
           {(
             [
@@ -187,11 +202,7 @@ export function InviteFriendScreen() {
             returnKeyType="search"
           />
           <View style={styles.searchIconSlot} pointerEvents="none">
-            {segment === "clubs" ? (
-              <Ionicons name="search-outline" size={20} color="rgba(255,255,255,0.9)" />
-            ) : (
-              <LocalSvgAsset assetModule={SEARCH_ICON} width={20} height={20} />
-            )}
+            <Ionicons name="search-outline" size={20} color={SEARCH_ICON_COLOR} />
           </View>
         </View>
 
@@ -275,6 +286,7 @@ export function InviteFriendScreen() {
         )}
         </ScrollView>
       </KeyboardAvoidingView>
+      <MainTabBarChrome />
     </View>
   );
 }
@@ -292,25 +304,17 @@ function getStyles(theme: {
     kav: {
       flex: 1,
     },
-    modalTopBar: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 8,
-      paddingBottom: 10,
+    titleRow: {
+      marginBottom: 12,
     },
-    modalCloseHit: {
-      width: 44,
-      height: 44,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    modalTitle: {
-      fontSize: 17,
+    screenTitle: {
+      fontSize: 20,
       color: "#FFFFFF",
     },
-    modalTopBarSpacer: {
-      width: 44,
+    titleDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: "rgba(255,255,255,0.12)",
+      marginBottom: 12,
     },
     scroll: {
       flex: 1,
@@ -341,7 +345,7 @@ function getStyles(theme: {
       backgroundColor: TAB_ACTIVE,
     },
     segmentPillInactive: {
-      backgroundColor: PILL_INACTIVE_BG,
+      backgroundColor: SEGMENT_INACTIVE_BG,
     },
     segmentLabel: {
       fontFamily: theme.mediumFont ?? "System",
@@ -351,20 +355,20 @@ function getStyles(theme: {
       color: "#FFFFFF",
     },
     segmentLabelInactive: {
-      color: "rgba(255, 255, 255, 0.65)",
+      color: SEGMENT_INACTIVE_TEXT,
     },
     rankingPill: {
       marginTop: 10,
       paddingVertical: 14,
       borderRadius: 20,
-      backgroundColor: PILL_INACTIVE_BG,
+      backgroundColor: SEGMENT_INACTIVE_BG,
       alignItems: "center",
       justifyContent: "center",
     },
     rankingLabel: {
       fontFamily: theme.mediumFont ?? "System",
       fontSize: 15,
-      color: "#FFFFFF",
+      color: SEGMENT_INACTIVE_TEXT,
     },
     searchWrap: {
       marginTop: 16,
@@ -376,7 +380,7 @@ function getStyles(theme: {
       paddingLeft: 14,
       paddingRight: 10,
       minHeight: 48,
-      backgroundColor: "rgba(14, 24, 48, 0.6)",
+      backgroundColor: SEARCH_FILL,
     },
     searchWrapTightTop: {
       marginTop: 12,

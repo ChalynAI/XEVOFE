@@ -23,7 +23,9 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { MainStackParamList } from "../navigation/types";
 import { ThemeContext } from "../context";
 import { useSessionData } from "../context/SessionDataContext";
-import { AdminGradientCard, Header } from "../components";
+import { AdminGradientCard } from "../components";
+import { Header } from "../components/Header";
+import { MainTabBarChrome } from "../components/MainTabBarChrome";
 import { ShieldHeroRow } from "../components/ShieldHeroRow";
 import { authClient } from "../lib/auth-client";
 import { LinearGradient } from "expo-linear-gradient";
@@ -164,7 +166,6 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
   const insets = useSafeAreaInsets();
   const styles = getStyles(theme);
   const pageHorizontalPad = 20;
-  const topInset = Math.max(20, insets.top + 8);
   /** Match Progress shield sizing rules 1:1. */
   const badgeShieldRowW = Math.max(1, winW - pageHorizontalPad * 2);
   const badgeShieldMaxH = Math.min(300, winH * 0.27);
@@ -731,6 +732,14 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
     </View>
   );
 
+  function navigateMainTab(screen: "AICoach" | "You") {
+    if (screen === "You") {
+      navigation.navigate("Main", { screen: "You", params: { screen: "YouMain" } });
+    } else {
+      navigation.navigate("Main", { screen: "AICoach" });
+    }
+  }
+
   if (activeSection === "personal") {
     const displayFullName =
       joinDisplayName(firstNameInput, lastNameInput) || data.user?.name || "Player";
@@ -739,7 +748,12 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
 
     return (
       <View style={styles.screenRoot}>
-        <Header flatOverlay onLogoPress={() => navigateMainTab("AICoach")} />
+        <Header
+          flatOverlay
+          onBackPress={() => setActiveSection(null)}
+          onLogoPress={() => navigateMainTab("AICoach")}
+          onNotificationsPress={() => navigation.navigate("Notifications")}
+        />
         <KeyboardAwareScrollView
           style={{ flex: 1, width: "100%" }}
           contentContainerStyle={[
@@ -747,7 +761,7 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
             {
               paddingHorizontal: pageHorizontalPad,
               paddingTop: 12,
-              paddingBottom: 28 + insets.bottom,
+              paddingBottom: 28,
             },
           ]}
           keyboardShouldPersistTaps="handled"
@@ -1018,6 +1032,7 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
             </View>
           </View>
         </Modal>
+        <MainTabBarChrome activeTab="You" />
       </View>
     );
   }
@@ -1029,7 +1044,12 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
 
     return (
       <View style={styles.screenRoot}>
-        <Header flatOverlay onLogoPress={() => navigateMainTab("AICoach")} />
+        <Header
+          flatOverlay
+          onBackPress={() => setActiveSection(null)}
+          onLogoPress={() => navigateMainTab("AICoach")}
+          onNotificationsPress={() => navigation.navigate("Notifications")}
+        />
         <KeyboardAwareScrollView
           style={{ flex: 1, width: "100%" }}
           contentContainerStyle={[
@@ -1037,7 +1057,7 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
             {
               paddingHorizontal: pageHorizontalPad,
               paddingTop: 12,
-              paddingBottom: 28 + insets.bottom,
+              paddingBottom: 28,
             },
           ]}
           keyboardShouldPersistTaps="handled"
@@ -1215,16 +1235,30 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
             primaryLoading={accountSaving}
           />
         </KeyboardAwareScrollView>
+        <MainTabBarChrome activeTab="You" />
       </View>
     );
   }
 
   if (activeSection === "location") {
     return (
-      <View style={[styles.container, { paddingTop: topInset }]}>
+      <View style={styles.screenRoot}>
+        <Header
+          flatOverlay
+          onBackPress={() => setActiveSection(null)}
+          onLogoPress={() => navigateMainTab("AICoach")}
+          onNotificationsPress={() => navigation.navigate("Notifications")}
+        />
         <KeyboardAwareScrollView
-          style={{ width: "100%" }}
-          contentContainerStyle={styles.subsectionScrollContent}
+          style={{ flex: 1, width: "100%" }}
+          contentContainerStyle={[
+            styles.subsectionScrollContent,
+            {
+              paddingHorizontal: pageHorizontalPad,
+              paddingTop: 12,
+              paddingBottom: 28,
+            },
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           bottomOffset={insets.bottom + 12}
@@ -1342,6 +1376,7 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
             </View>
           </Modal>
         </KeyboardAwareScrollView>
+        <MainTabBarChrome activeTab="You" />
       </View>
     );
   }
@@ -1349,10 +1384,23 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
   if (activeSection === "game") {
     const rankingLogoMod = rankingLogoModule(rankingOrgInput);
     return (
-      <View style={[styles.container, { paddingTop: topInset }]}>
+      <View style={styles.screenRoot}>
+        <Header
+          flatOverlay
+          onBackPress={() => setActiveSection(null)}
+          onLogoPress={() => navigateMainTab("AICoach")}
+          onNotificationsPress={() => navigation.navigate("Notifications")}
+        />
         <KeyboardAwareScrollView
-          style={{ width: "100%" }}
-          contentContainerStyle={styles.subsectionScrollContent}
+          style={{ flex: 1, width: "100%" }}
+          contentContainerStyle={[
+            styles.subsectionScrollContent,
+            {
+              paddingHorizontal: pageHorizontalPad,
+              paddingTop: 12,
+              paddingBottom: 28,
+            },
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           bottomOffset={insets.bottom + 12}
@@ -1451,6 +1499,7 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
             primaryLoading={gameSaving}
           />
         </KeyboardAwareScrollView>
+        <MainTabBarChrome activeTab="You" />
       </View>
     );
   }
@@ -1465,27 +1514,20 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
     }
   }
 
-  function navigateMainTab(screen: "AICoach" | "You") {
-    if (screen === "You") {
-      navigation.navigate("Main", { screen: "You", params: { screen: "YouMain" } });
-    } else {
-      navigation.navigate("Main", { screen: "AICoach" });
-    }
-  }
-
   return (
     <View style={styles.screenRoot}>
       <Header
         flatOverlay
         onBackPress={onClose}
         onLogoPress={() => navigateMainTab("AICoach")}
+        onNotificationsPress={() => navigation.navigate("Notifications")}
       />
       <KeyboardAwareScrollView
         style={{ flex: 1, width: "100%" }}
         contentContainerStyle={{
           paddingHorizontal: pageHorizontalPad,
           paddingTop: 12,
-          paddingBottom: 28 + insets.bottom,
+          paddingBottom: 28,
         }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -1620,6 +1662,7 @@ export function ProfileSettingsScreen(props: { onProfileUpdated?: () => void; on
           </TouchableOpacity>
         </View>
       </KeyboardAwareScrollView>
+      <MainTabBarChrome activeTab="You" />
     </View>
   );
 }

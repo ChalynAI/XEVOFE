@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   Image,
-  useWindowDimensions,
   TouchableOpacity,
   Platform,
   ActivityIndicator,
@@ -20,10 +19,11 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import type { MainStackParamList, MainTabParamList, MyCoachTabStackParamList } from '../navigation/types'
 import { ThemeContext } from '../context'
+import { useSessionData } from '../context/SessionDataContext'
 import { vercel as defaultTheme } from '../theme'
 import { getCachedProfile } from '../lib/profile-cache'
 import { LocalSvgAsset } from '../components/LocalSvgAsset'
-import { ShieldProportionalFrame } from '../components/ShieldProportionalFrame'
+import { ProfileHeroScoreBlock } from '../components/ProfileHeroScoreBlock'
 import { MyCoachCoachHero } from './myCoach/CoachHero'
 import { MyCoachSwipeableStudentCard } from './myCoach/SwipeableStudentCard'
 import type { MyCoachStudent } from './myCoach/types'
@@ -120,15 +120,13 @@ function AddNewStudentButtonPill({ mediumFont }: { mediumFont: string }) {
 }
 
 const BG = '#030A17'
-const SCORE_BG = require('../../assets/aicoach/scorepng.png')
-const SMALL_SHIELD_CAP_REF_WIN_W = 430
 
 export function MyCoachScreen() {
   const { theme: ctx } = useContext(ThemeContext)
   const theme = ctx?.backgroundColor != null ? ctx : defaultTheme
   const insets = useSafeAreaInsets()
-  const { width: winW } = useWindowDimensions()
   const navigation = useNavigation<MyCoachScreenNav>()
+  const { onTabFocus } = useSessionData()
 
   const rootStackNavigation = useCallback(
     () => navigation.getParent()?.getParent() as NativeStackNavigationProp<MainStackParamList> | undefined,
@@ -136,47 +134,9 @@ export function MyCoachScreen() {
   )
 
   const [openStudentId, setOpenStudentId] = useState<string | null>(null)
-  const [profileName, setProfileName] = useState<string | null>(null)
-  const [profileImageUri, setProfileImageUri] = useState<string | null>(null)
-  const [overallPillarScore, setOverallPillarScore] = useState<number | null>(null)
   const [students, setStudents] = useState<MyCoachStudent[]>([])
   const [studentsLoading, setStudentsLoading] = useState(true)
   const [viewerIsCoach, setViewerIsCoach] = useState(false)
-
-  const loadCoachOverallScore = useCallback(async () => {
-    try {
-      const res = await authClient
-        .$fetch<{ categories?: { id: string; thisWeek: number }[] }>('/profile/rating-by-category', {
-          method: 'GET',
-          headers: { Accept: 'application/json' },
-        })
-        .catch(() => null)
-      const body = ((res as { data?: unknown })?.data ?? res) as {
-        categories?: { id: string; thisWeek: number }[]
-      }
-      const rows = Array.isArray(body?.categories) ? body.categories : []
-      if (!rows.length) {
-        setOverallPillarScore(null)
-        return
-      }
-      const PILLAR_IDS = ['save_return', 'ground_strokes', 'net_play', 'defence_glass', 'overhead'] as const
-      const values: number[] = []
-      for (const id of PILLAR_IDS) {
-        const row = rows.find((r) => r.id === id)
-        if (typeof row?.thisWeek === 'number') {
-          values.push(Math.round(Math.max(0, Math.min(100, Number(row.thisWeek) || 0))))
-        }
-      }
-      if (!values.length) {
-        setOverallPillarScore(null)
-        return
-      }
-      const avg = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length)
-      setOverallPillarScore(avg)
-    } catch {
-      setOverallPillarScore(null)
-    }
-  }, [])
 
   const loadCoachStudents = useCallback(async () => {
     setStudentsLoading(true)
@@ -233,32 +193,25 @@ export function MyCoachScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      onTabFocus()
       let mounted = true
       void getCachedProfile().then((cached) => {
         if (!mounted) return
-        const n = cached?.user?.name?.trim()
-        setProfileName(n && n.length > 0 ? n : null)
-        setProfileImageUri(profileImageToAbsoluteUri(cached?.user?.image))
         const cr = cached?.profile?.coachStudentRole
         setViewerIsCoach(cr === 'coach')
       })
       void authClient.$fetch('/profile/me', { method: 'GET' }).then((res) => {
         if (!mounted) return
         const body = ((res as { data?: unknown })?.data ?? res) as {
-          user?: { name?: string; image?: string | null }
           profile?: { coachStudentRole?: string }
         }
-        const n = body?.user?.name?.trim()
-        if (n) setProfileName(n)
-        setProfileImageUri(profileImageToAbsoluteUri(body?.user?.image))
         setViewerIsCoach(body?.profile?.coachStudentRole === 'coach')
       })
-      void loadCoachOverallScore()
       void loadCoachStudents()
       return () => {
         mounted = false
       }
-    }, [loadCoachOverallScore, loadCoachStudents])
+    }, [loadCoachStudents, onTabFocus])
   )
 
   const fonts = useMemo(
@@ -305,24 +258,6 @@ export function MyCoachScreen() {
     [navigation]
   )
 
-  const heroH = useMemo(() => Math.min(220, Math.max(160, winW * 0.42)), [winW])
-  const shieldMaxW = useMemo(() => {
-    const heroRowInnerW = winW - 40
-    const approxColW = (heroRowInnerW - 10) / 2
-    const current = Math.min(approxColW, winW * 0.44)
-    const refHeroRowInnerW = SMALL_SHIELD_CAP_REF_WIN_W - 40
-    const refApproxColW = (refHeroRowInnerW - 10) / 2
-    const reference = Math.min(refApproxColW, SMALL_SHIELD_CAP_REF_WIN_W * 0.44)
-    return Math.min(current, reference)
-  }, [winW])
-  const heroLayout = useMemo(
-    () => ({
-      shieldCol: { flex: 1, alignItems: 'center' as const, maxWidth: winW * 0.44 },
-      scoreCol: { flex: 1, alignItems: 'center' as const, maxWidth: winW * 0.5 },
-    }),
-    [winW]
-  )
-
   return (
     <View style={styles.screen}>
       <ScrollView
@@ -332,57 +267,7 @@ export function MyCoachScreen() {
       >
         <MyCoachCoachHero coachName="David Blow" fonts={fonts} onUploadedVideo={onVideoPicked} />
 
-        <View style={styles.heroRow}>
-          <View style={heroLayout.shieldCol}>
-            <View style={[styles.shieldSlot, { height: heroH }]}>
-              <ShieldProportionalFrame
-                maxWidth={shieldMaxW}
-                maxHeight={heroH}
-                variant="small"
-                coachName={profileName?.trim() ?? ''}
-                coachImageUri={profileImageUri}
-                showName={false}
-                showScore={false}
-                showCrest={false}
-                showFlag
-                showPillarScores
-              />
-            </View>
-          </View>
-          <View style={heroLayout.scoreCol}>
-            <View style={{ width: '100%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center' }}>
-              <Image source={SCORE_BG} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }} resizeMode="contain" />
-              <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', transform: [{ translateX: -5 }] }}>
-                <View style={{ alignItems: 'center', marginTop: 10 }}>
-                  <Text allowFontScaling={false} numberOfLines={1} style={{ fontFamily: theme.semiBoldFont, fontSize: 13, color: '#FFFFFF', marginBottom: 1 }}>
-                    {profileName ?? ''}
-                  </Text>
-                  <Text allowFontScaling={false} style={{ fontFamily: theme.mediumFont, fontSize: 10, color: '#00BBFF', letterSpacing: 0.5 }}>
-                    Premium
-                  </Text>
-                </View>
-                <View style={{ position: 'absolute', top: '50%', alignItems: 'center', transform: [{ translateY: -27 }] }}>
-                  <Text allowFontScaling={false} style={{ fontFamily: theme.boldFont ?? theme.semiBoldFont, fontSize: 36, color: '#FFFFFF', lineHeight: 40 }}>
-                    {overallPillarScore != null ? overallPillarScore : 54}
-                  </Text>
-                  <Text allowFontScaling={false} style={{ fontFamily: theme.regularFont, fontSize: 11, color: 'rgba(200,220,255,0.7)', marginTop: -1 }}>
-                    Score
-                  </Text>
-                </View>
-                <View style={{ position: 'absolute', bottom: 12, flexDirection: 'row', gap: 20 }}>
-                  <View style={{ alignItems: 'center' }}>
-                    <Text allowFontScaling={false} style={{ fontFamily: theme.semiBoldFont, fontSize: 15, color: '#FFFFFF', lineHeight: 18 }}>0</Text>
-                    <Text allowFontScaling={false} style={{ fontFamily: theme.regularFont, fontSize: 9, color: 'rgba(200,220,255,0.6)', marginTop: 1 }}>Following</Text>
-                  </View>
-                  <View style={{ alignItems: 'center' }}>
-                    <Text allowFontScaling={false} style={{ fontFamily: theme.semiBoldFont, fontSize: 15, color: '#FFFFFF', lineHeight: 18 }}>0</Text>
-                    <Text allowFontScaling={false} style={{ fontFamily: theme.regularFont, fontSize: 9, color: 'rgba(200,220,255,0.6)', marginTop: 1 }}>Followers</Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-          </View>
-        </View>
+        <ProfileHeroScoreBlock horizontalPadding={20} />
 
         <View style={styles.studentsBlock}>
           <View style={styles.studentsTitleRow}>
@@ -459,21 +344,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(232,240,255,0.55)',
     textAlign: 'center',
-  },
-  heroRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 20,
-  },
-  shieldSlot: {
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scoreImg: {
-    width: '100%',
   },
   studentsBlock: {
     marginBottom: 12,

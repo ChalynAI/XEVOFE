@@ -1,4 +1,4 @@
-import React, { useContext, useMemo } from "react";
+import React, { useCallback, useContext, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -12,6 +12,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ThemeContext } from "../context";
+import { Header } from "../components/Header";
+import { MainTabBarChrome } from "../components/MainTabBarChrome";
 import { LocalSvgAsset } from "../components/LocalSvgAsset";
 import { ClubBannerImage } from "../components/ClubBannerImage";
 import { ClubPfpImage } from "../components/ClubPfpImage";
@@ -21,11 +23,9 @@ import type { MainStackParamList } from "../navigation/types";
 const ABOUT_ICON = require("../../assets/youpage/abouticon.svg");
 const UNFOLLOW_ICON = require("../../assets/youpage/unfollowicon.svg");
 const BOOK_VIDEO_ICON = require("../../assets/youpage/bookvideocall.svg");
-const BACK_BUTTON_SVG = require("../../assets/coachs/backbutton.svg");
 const SHARE_ICON_SVG = require("../../assets/coachs/shareicon.svg");
 
-const SUBNAV_ICON = 22;
-const SUBNAV_BACK_LABEL = "#86A7D2";
+const SHARE_ICON_SIZE = 22;
 
 const GALLERY_MODULES = [
   require("../../assets/youpage/img1.svg"),
@@ -62,13 +62,34 @@ export function ClubDetailScreen() {
   const bannerW = winW;
   const bannerH = bannerW * CLUB_BANNER_ASPECT;
 
+  const navigateMainTab = useCallback(
+    (screen: "AICoach" | "You") => {
+      if (screen === "You") {
+        navigation.navigate("Main", {
+          screen: "You",
+          params: { screen: "YouMain" },
+        });
+      } else {
+        navigation.navigate("Main", { screen: "AICoach" });
+      }
+    },
+    [navigation]
+  );
+
   if (!club) {
     return (
-      <View style={[styles.root, styles.fallback, { paddingBottom: insets.bottom }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backSlot}>
-          <LocalSvgAsset assetModule={BACK_BUTTON_SVG} width={SUBNAV_ICON} height={SUBNAV_ICON} />
-        </TouchableOpacity>
-        <Text style={styles.fallbackText}>Club not found</Text>
+      <View style={styles.root}>
+        <Header
+          flatOverlay
+          onBackPress={() => navigation.goBack()}
+          onLogoPress={() => navigateMainTab("AICoach")}
+          onSettingsPress={() => navigation.navigate("ProfileSettings")}
+          onNotificationsPress={() => navigation.navigate("Notifications")}
+        />
+        <View style={[styles.fallback, { paddingHorizontal: horizontalPad }]}>
+          <Text style={styles.fallbackText}>Club not found</Text>
+        </View>
+        <MainTabBarChrome />
       </View>
     );
   }
@@ -86,27 +107,14 @@ export function ClubDetailScreen() {
   }
 
   return (
-    <View style={[styles.root, { paddingBottom: insets.bottom }]}>
-      <View style={[styles.subNav, { paddingHorizontal: horizontalPad }]}>
-        <TouchableOpacity
-          style={styles.subNavLeft}
-          onPress={() => navigation.goBack()}
-          hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          accessibilityRole="button"
-          accessibilityLabel="Back to Clubs"
-        >
-          <LocalSvgAsset assetModule={BACK_BUTTON_SVG} width={SUBNAV_ICON} height={SUBNAV_ICON} />
-          <Text style={styles.subNavBackText}>Back to Clubs</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => void onShare()}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityLabel="Share club"
-        >
-          <LocalSvgAsset assetModule={SHARE_ICON_SVG} width={SUBNAV_ICON} height={SUBNAV_ICON} />
-        </TouchableOpacity>
-      </View>
-
+    <View style={styles.root}>
+      <Header
+        flatOverlay
+        onBackPress={() => navigation.goBack()}
+        onLogoPress={() => navigateMainTab("AICoach")}
+        onSettingsPress={() => navigation.navigate("ProfileSettings")}
+        onNotificationsPress={() => navigation.navigate("Notifications")}
+      />
       <ScrollView
         key={clubId}
         style={styles.scroll}
@@ -115,6 +123,16 @@ export function ClubDetailScreen() {
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled
       >
+        <View style={styles.shareRow}>
+          <TouchableOpacity
+            onPress={() => void onShare()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Share club"
+          >
+            <LocalSvgAsset assetModule={SHARE_ICON_SVG} width={SHARE_ICON_SIZE} height={SHARE_ICON_SIZE} />
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.hero}>
           <View style={[styles.bannerBleed, { marginHorizontal: -horizontalPad, width: bannerW }]}>
             <View style={styles.bannerClip}>
@@ -205,6 +223,7 @@ export function ClubDetailScreen() {
           <Text style={styles.aboutBody}>{club.aboutBody}</Text>
         </View>
       </ScrollView>
+      <MainTabBarChrome />
     </View>
   );
 }
@@ -228,29 +247,17 @@ function getStyles(theme: {
       color: "#FFFFFF",
       fontFamily: theme.regularFont ?? "System",
     },
-    subNav: {
+    shareRow: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between",
-      paddingTop: 4,
-      paddingBottom: 10,
-    },
-    subNavLeft: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 2,
-      flexShrink: 1,
-    },
-    subNavBackText: {
-      color: SUBNAV_BACK_LABEL,
-      fontFamily: theme.mediumFont ?? "System",
-      fontSize: 13,
+      justifyContent: "flex-end",
+      marginBottom: 6,
     },
     scroll: {
       flex: 1,
     },
     scrollInner: {
-      paddingBottom: 28,
+      paddingBottom: 20,
     },
     hero: {
       marginBottom: 6,
@@ -389,9 +396,6 @@ function getStyles(theme: {
       fontFamily: theme.regularFont ?? "System",
       fontSize: 15,
       lineHeight: 22,
-    },
-    backSlot: {
-      padding: 12,
     },
   });
 }

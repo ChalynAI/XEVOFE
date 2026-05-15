@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Image, TouchableOpacity, useWindowDimensions } from "react-native";
+import { View, Text, StyleSheet, Image, TouchableOpacity } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { ThemeContext } from "../context";
 import { useSessionData } from "../context/SessionDataContext";
@@ -11,94 +11,11 @@ import {
 } from "../lib/weeklyAiInsight";
 import { ActivitiesCalendarFlow } from "./Activities";
 import { ProfileRatingDashboard } from "../components/ProfileRatingDashboard";
-import { ShieldProportionalFrame } from "../components/ShieldProportionalFrame";
+import { ProfileHeroScoreBlock } from "../components/ProfileHeroScoreBlock";
 import { LinearGradient } from "expo-linear-gradient";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 const AI_INSIGHT_LOGO = require("../../assets/youpage/aiinsight.png");
-const SCORE_BG = require("../../assets/aicoach/scorepng.png");
-const SMALL_SHIELD_CAP_REF_WIN_W = 430;
-
-function ProfileHeroScoreBlock() {
-  const { theme } = useContext(ThemeContext);
-  const { width: winW } = useWindowDimensions();
-  const { profileName, profileImageUri, overallPillarScore, profileAreaLocation } = useSessionData();
-
-  const heroH = useMemo(() => Math.min(220, Math.max(160, winW * 0.42)), [winW]);
-  const shieldMaxW = useMemo(() => {
-    const heroRowInnerW = winW - 40;
-    const approxColW = (heroRowInnerW - 10) / 2;
-    const current = Math.min(approxColW, winW * 0.44);
-    const refHeroRowInnerW = SMALL_SHIELD_CAP_REF_WIN_W - 40;
-    const refApproxColW = (refHeroRowInnerW - 10) / 2;
-    const reference = Math.min(refApproxColW, SMALL_SHIELD_CAP_REF_WIN_W * 0.44);
-    return Math.min(current, reference);
-  }, [winW]);
-  const heroLayout = useMemo(
-    () => ({
-      shieldCol: { flex: 1, alignItems: "center" as const, maxWidth: winW * 0.44 },
-      scoreCol: { flex: 1, alignItems: "center" as const, maxWidth: winW * 0.5 },
-    }),
-    [winW]
-  );
-
-  return (
-    <View style={heroStyles.block}>
-      <View style={heroStyles.heroRow}>
-        <View style={heroLayout.shieldCol}>
-          <View style={[heroStyles.shieldSlot, { height: heroH }]}>
-            <ShieldProportionalFrame
-              maxWidth={shieldMaxW}
-              maxHeight={heroH}
-              variant="small"
-              coachName={profileName?.trim() ?? ""}
-              coachImageUri={profileImageUri}
-              flagCode={profileAreaLocation}
-              showName={false}
-              showScore={false}
-              showCrest={false}
-              showFlag
-              showPillarScores
-            />
-          </View>
-        </View>
-        <View style={heroLayout.scoreCol}>
-          <View style={{ width: "100%", aspectRatio: 1, alignItems: "center", justifyContent: "center" }}>
-            <Image source={SCORE_BG} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }} resizeMode="contain" />
-            <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", transform: [{ translateX: -5 }] }}>
-              <View style={{ alignItems: "center", marginTop: 10 }}>
-                <Text allowFontScaling={false} numberOfLines={1} style={{ fontFamily: theme.semiBoldFont, fontSize: 13, color: "#FFFFFF", marginBottom: 1 }}>
-                  {profileName ?? ""}
-                </Text>
-                <Text allowFontScaling={false} style={{ fontFamily: theme.mediumFont, fontSize: 10, color: "#00BBFF", letterSpacing: 0.5 }}>
-                  Premium
-                </Text>
-              </View>
-              <View style={{ position: "absolute", top: "50%", alignItems: "center", transform: [{ translateY: -27 }] }}>
-                <Text allowFontScaling={false} style={{ fontFamily: theme.boldFont ?? theme.semiBoldFont, fontSize: 36, color: "#FFFFFF", lineHeight: 40 }}>
-                  {overallPillarScore != null ? overallPillarScore : 54}
-                </Text>
-                <Text allowFontScaling={false} style={{ fontFamily: theme.regularFont, fontSize: 11, color: "rgba(200,220,255,0.7)", marginTop: -1 }}>
-                  Score
-                </Text>
-              </View>
-              <View style={{ position: "absolute", bottom: 12, flexDirection: "row", gap: 20 }}>
-                <View style={{ alignItems: "center" }}>
-                  <Text allowFontScaling={false} style={{ fontFamily: theme.semiBoldFont, fontSize: 15, color: "#FFFFFF", lineHeight: 18 }}>0</Text>
-                  <Text allowFontScaling={false} style={{ fontFamily: theme.regularFont, fontSize: 9, color: "rgba(200,220,255,0.6)", marginTop: 1 }}>Following</Text>
-                </View>
-                <View style={{ alignItems: "center" }}>
-                  <Text allowFontScaling={false} style={{ fontFamily: theme.semiBoldFont, fontSize: 15, color: "#FFFFFF", lineHeight: 18 }}>0</Text>
-                  <Text allowFontScaling={false} style={{ fontFamily: theme.regularFont, fontSize: 9, color: "rgba(200,220,255,0.6)", marginTop: 1 }}>Followers</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        </View>
-      </View>
-    </View>
-  );
-}
 
 function ProfileAiInsightBanner({
   styles,
@@ -215,24 +132,6 @@ export function Profile(props?: { onProfileUpdated?: () => void; onDone?: () => 
     />
   );
 }
-
-const heroStyles = StyleSheet.create({
-  block: {
-    width: "100%",
-    marginBottom: 12,
-  },
-  heroRow: {
-    flexDirection: "row",
-    alignItems: "stretch",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  shieldSlot: {
-    width: "100%",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-});
 
 function getAiInsightStyles(theme: any) {
   return StyleSheet.create({

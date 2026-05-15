@@ -1,4 +1,4 @@
-import React, { useContext, useMemo } from "react";
+import React, { useCallback, useContext, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -14,6 +14,8 @@ import { useNavigation, useRoute, type RouteProp } from "@react-navigation/nativ
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ThemeContext } from "../context";
+import { Header } from "../components/Header";
+import { MainTabBarChrome } from "../components/MainTabBarChrome";
 import { LocalSvgAsset } from "../components/LocalSvgAsset";
 import { getCoachDetail } from "../lib/coach-detail-data";
 import type { MainStackParamList } from "../navigation/types";
@@ -25,11 +27,9 @@ const SHIELD_COACH = require("../../assets/coachs/shieldcoach.png");
 const SCORE_GRAPHIC = require("../../assets/coachs/coachscore.png");
 const BD_ICON_SVG = require("../../assets/coachs/bdicon.svg");
 const MEDEL_SVG = require("../../assets/coachs/medel.svg");
-const BACK_BUTTON_SVG = require("../../assets/coachs/backbutton.svg");
 const SHARE_ICON_SVG = require("../../assets/coachs/shareicon.svg");
 
-const SUBNAV_ICON = 22;
-const SUBNAV_BACK_LABEL = "#86A7D2";
+const SHARE_ICON_SIZE = 22;
 
 const COACH_GALLERY = [
   require("../../assets/coachs/img1.png"),
@@ -62,6 +62,20 @@ export function CoachDetailScreen() {
   const coachId = route.params.coachId;
   const coach = useMemo(() => getCoachDetail(coachId), [coachId]);
   const horizontalPad = Math.max(16, insets.left, insets.right);
+
+  const navigateMainTab = useCallback(
+    (screen: "AICoach" | "You") => {
+      if (screen === "You") {
+        navigation.navigate("Main", {
+          screen: "You",
+          params: { screen: "YouMain" },
+        });
+      } else {
+        navigation.navigate("Main", { screen: "AICoach" });
+      }
+    },
+    [navigation]
+  );
   const contentW = winW - horizontalPad * 2;
   const heroGap = 12;
   const shieldW = Math.min(168, Math.floor(contentW * 0.4));
@@ -71,11 +85,18 @@ export function CoachDetailScreen() {
 
   if (!coach) {
     return (
-      <View style={[styles.root, styles.fallback, { paddingBottom: insets.bottom }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backSlot}>
-          <LocalSvgAsset assetModule={BACK_BUTTON_SVG} width={SUBNAV_ICON} height={SUBNAV_ICON} />
-        </TouchableOpacity>
-        <Text style={styles.fallbackText}>Coach not found</Text>
+      <View style={styles.root}>
+        <Header
+          flatOverlay
+          onBackPress={() => navigation.goBack()}
+          onLogoPress={() => navigateMainTab("AICoach")}
+          onSettingsPress={() => navigation.navigate("ProfileSettings")}
+          onNotificationsPress={() => navigation.navigate("Notifications")}
+        />
+        <View style={[styles.fallback, { paddingHorizontal: horizontalPad }]}>
+          <Text style={styles.fallbackText}>Coach not found</Text>
+        </View>
+        <MainTabBarChrome />
       </View>
     );
   }
@@ -93,27 +114,14 @@ export function CoachDetailScreen() {
   }
 
   return (
-    <View style={[styles.root, { paddingBottom: insets.bottom }]}>
-      <View style={[styles.subNav, { paddingHorizontal: horizontalPad }]}>
-        <TouchableOpacity
-          style={styles.subNavLeft}
-          onPress={() => navigation.goBack()}
-          hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          accessibilityRole="button"
-          accessibilityLabel="Back to Coaches"
-        >
-          <LocalSvgAsset assetModule={BACK_BUTTON_SVG} width={SUBNAV_ICON} height={SUBNAV_ICON} />
-          <Text style={styles.subNavBackText}>Back to Coaches</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => void onShare()}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityLabel="Share coach"
-        >
-          <LocalSvgAsset assetModule={SHARE_ICON_SVG} width={SUBNAV_ICON} height={SUBNAV_ICON} />
-        </TouchableOpacity>
-      </View>
-
+    <View style={styles.root}>
+      <Header
+        flatOverlay
+        onBackPress={() => navigation.goBack()}
+        onLogoPress={() => navigateMainTab("AICoach")}
+        onSettingsPress={() => navigation.navigate("ProfileSettings")}
+        onNotificationsPress={() => navigation.navigate("Notifications")}
+      />
       <ScrollView
         key={detail.id}
         style={styles.scroll}
@@ -122,6 +130,16 @@ export function CoachDetailScreen() {
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled
       >
+        <View style={styles.shareRow}>
+          <TouchableOpacity
+            onPress={() => void onShare()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Share coach"
+          >
+            <LocalSvgAsset assetModule={SHARE_ICON_SVG} width={SHARE_ICON_SIZE} height={SHARE_ICON_SIZE} />
+          </TouchableOpacity>
+        </View>
+
         <View style={[styles.heroRow, { gap: heroGap }]}>
           <Image
             source={SHIELD_COACH}
@@ -206,6 +224,7 @@ export function CoachDetailScreen() {
           </View>
         </View>
       </ScrollView>
+      <MainTabBarChrome />
     </View>
   );
 }
@@ -229,29 +248,17 @@ function getStyles(theme: {
       color: "#FFFFFF",
       fontFamily: theme.regularFont ?? "System",
     },
-    subNav: {
+    shareRow: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between",
-      paddingTop: 4,
-      paddingBottom: 10,
-    },
-    subNavLeft: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 2,
-      flexShrink: 1,
-    },
-    subNavBackText: {
-      color: SUBNAV_BACK_LABEL,
-      fontFamily: theme.mediumFont ?? "System",
-      fontSize: 13,
+      justifyContent: "flex-end",
+      marginBottom: 6,
     },
     scroll: {
       flex: 1,
     },
     scrollInner: {
-      paddingBottom: 28,
+      paddingBottom: 20,
     },
     heroRow: {
       flexDirection: "row",
@@ -411,9 +418,6 @@ function getStyles(theme: {
       fontFamily: theme.regularFont ?? "System",
       fontSize: 14,
       lineHeight: 21,
-    },
-    backSlot: {
-      padding: 12,
     },
   });
 }

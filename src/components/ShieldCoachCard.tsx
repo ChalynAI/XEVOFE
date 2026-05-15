@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react'
 import { Image, Platform, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import MaskedView from '@react-native-masked-view/masked-view'
-import { LocalSvgAsset } from './LocalSvgAsset'
 import { Asset } from 'expo-asset'
 import { authClient } from '../lib/auth-client'
 import type { TrainCategory } from '../lib/train-taxonomy'
@@ -29,7 +28,8 @@ const BOTTOM_GRADIENT = require('../../assets/shield-card/Bottomgradientellipse.
 const TOP_BLUE_LINE = require('../../assets/shield-card/topblueline.png')
 const BACK_LINES = require('../../assets/shield-card/backlines.png')
 const PHOTO_SHADOW = require('../../assets/shield-card/foto_shadow.png')
-const FALLBACK_COACH = require('../../assets/mycoach/mycoachpfp.png')
+/** Default silhouette — always drawn under the user photo so the shield never looks empty. */
+const DEFAULT_PROFILE_PHOTO = require('../../assets/shield-card/defultimg.png')
 
 const PILLAR_SCORE_COLOR = '#97CDFF'
 
@@ -190,7 +190,8 @@ export function ShieldCoachCard({
   const outlineH = Math.round(height * outlineScale)
   const outlineLeft = (width - outlineW) / 2
   const outlineTop = (height - outlineH) / 2
-  const photoSource: ImageSourcePropType = coachImageUri ? { uri: coachImageUri } : FALLBACK_COACH
+  const userPhotoSource: ImageSourcePropType | null =
+    coachImageUri && String(coachImageUri).trim().length > 0 ? { uri: coachImageUri } : null
   const flagSource = shieldFlagSource(flagCode)
   const topNameRaw =
     topShieldName !== undefined && topShieldName !== null ? topShieldName : coachName
@@ -228,28 +229,60 @@ export function ShieldCoachCard({
     <>
       <View style={styles.baseBlue} />
       {!isWeb ? (
-        <Image source={photoSource} style={styles.photoNative} resizeMode="cover" />
+        <>
+          <View style={styles.photoDefaultWrap} pointerEvents="none">
+            <Image source={DEFAULT_PROFILE_PHOTO} style={styles.photoDefaultImg} resizeMode="contain" />
+          </View>
+          {userPhotoSource ? (
+            <Image source={userPhotoSource} style={styles.photoUserOverlay} resizeMode="cover" />
+          ) : null}
+        </>
       ) : (
-        <Image
-          source={photoSource}
-          style={[
-            styles.photo,
-            styles.photoWebMasked,
-            photoTopMaskUri
-              ? ({
-                  WebkitMaskImage: `url(${photoTopMaskUri})`,
-                  WebkitMaskRepeat: 'no-repeat',
-                  WebkitMaskPosition: 'center',
-                  WebkitMaskSize: '100% 100%',
-                  maskImage: `url(${photoTopMaskUri})`,
-                  maskRepeat: 'no-repeat',
-                  maskPosition: 'center',
-                  maskSize: '100% 100%',
-                } as any)
-              : null,
-          ]}
-          resizeMode="cover"
-        />
+        <>
+          <View
+            style={[
+              styles.photoDefaultWrap,
+              photoTopMaskUri
+                ? ({
+                    WebkitMaskImage: `url(${photoTopMaskUri})`,
+                    WebkitMaskRepeat: 'no-repeat',
+                    WebkitMaskPosition: 'center',
+                    WebkitMaskSize: '100% 100%',
+                    maskImage: `url(${photoTopMaskUri})`,
+                    maskRepeat: 'no-repeat',
+                    maskPosition: 'center',
+                    maskSize: '100% 100%',
+                  } as any)
+                : null,
+            ]}
+            pointerEvents="none"
+          >
+            <Image source={DEFAULT_PROFILE_PHOTO} style={styles.photoDefaultImg} resizeMode="contain" />
+          </View>
+          {userPhotoSource ? (
+            <Image
+              source={userPhotoSource}
+              style={[
+                styles.photo,
+                styles.photoWebMasked,
+                styles.photoUserOverlayWeb,
+                photoTopMaskUri
+                  ? ({
+                      WebkitMaskImage: `url(${photoTopMaskUri})`,
+                      WebkitMaskRepeat: 'no-repeat',
+                      WebkitMaskPosition: 'center',
+                      WebkitMaskSize: '100% 100%',
+                      maskImage: `url(${photoTopMaskUri})`,
+                      maskRepeat: 'no-repeat',
+                      maskPosition: 'center',
+                      maskSize: '100% 100%',
+                    } as any)
+                  : null,
+              ]}
+              resizeMode="cover"
+            />
+          ) : null}
+        </>
       )}
 
       <Image
@@ -590,6 +623,34 @@ function createShieldStyles(L: ShieldLayoutSpec) {
       bottom: L.photo.bottom,
       height: L.photo.height,
       zIndex: 1,
+    },
+    /** Default silhouette — inset + contain so it fits the visible photo window, not full-bleed cover. */
+    photoDefaultWrap: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: L.photo.bottom,
+      height: L.photo.height,
+      zIndex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingTop: 0,
+      paddingBottom: '33%',
+    },
+    photoDefaultImg: {
+      width: '125%',
+      height: '125%',
+    },
+    photoUserOverlay: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: L.photo.bottom,
+      height: L.photo.height,
+      zIndex: 2,
+    },
+    photoUserOverlayWeb: {
+      zIndex: 2,
     },
     photoWebMasked: {
       position: 'absolute',
