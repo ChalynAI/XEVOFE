@@ -1,0 +1,20 @@
+# =====================================================================
+# pnpm 11+ reads ALL behavior settings (except auth/registry) from this
+# file, NOT from .npmrc. Putting these in .npmrc is a silent no-op.
+# Ref: https://pnpm.io/settings#nodelinker
+# =====================================================================
+#
+# nodeLinker: hoisted        -> Flat node_modules (no .pnpm/<hash>/node_modules
+#                                indirection). Critical on Windows because the
+#                                .pnpm/<60-char-hash>/node_modules/<pkg>/.../<file>
+#                                paths blow past CMake's 250-char CMAKE_OBJECT_PATH_MAX
+#                                when building react-native-worklets / reanimated.
+# packageImportMethod: copy  -> Materialize real files in node_modules (not
+#                                hardlinks/junctions). Required because Gradle's
+#                                Ninja build chokes on Windows reparse points
+#                                inside .cxx/ — "build.ninja still dirty".
+nodeLinker: hoisted
+packageImportMethod: copy
+
+allowBuilds:
+  dtrace-provider: true

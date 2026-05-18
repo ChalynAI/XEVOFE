@@ -6,7 +6,11 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://carylon-coconscious-fatally.ngrok-free.dev/",
+        "EXPO_PUBLIC_BETTER_AUTH_URL": "https://carylon-coconscious-fatally.ngrok-free.dev/"
+      }
     },
     "preview": {
       "distribution": "internal"

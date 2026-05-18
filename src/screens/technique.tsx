@@ -112,6 +112,17 @@ const STEP3_CARD_GRADIENT_LOCATIONS = [0, 0.33, 0.66, 1] as const
 /** Toggle to show dev pose actions again */
 const SHOW_GENERATE_POSES_TEST = false
 const SHOW_GENERATE_FAL_FLUX = false
+/** When true, show ComfyUI correction path (server must have COMFYUI_* env + reachable Comfy). */
+const SHOW_COMFY_CORRECTIONS = process.env.EXPO_PUBLIC_SHOW_COMFY_CORRECTIONS === 'true'
+/**
+ * Legacy correction providers (Gemini + fal.ai) — chips, retry buttons, and the
+ * primary "Generate Corrected Poses" button (which historically routed to Gemini).
+ * Default OFF so testing the Comfy/Qwen path is unambiguous: no silent fallbacks,
+ * no buttons that route to third-party. Set `EXPO_PUBLIC_ENABLE_LEGACY_CORRECTIONS=true`
+ * in `app/.env` to bring them back for A/B comparison.
+ */
+const SHOW_LEGACY_CORRECTIONS =
+  process.env.EXPO_PUBLIC_ENABLE_LEGACY_CORRECTIONS === 'true'
 /** Must stay in sync with `coachBannerSlot` (minHeight + vertical padding). */
 const COACH_BANNER_SLOT_H = 96
 const COACH_BANNER_SLOT_PADDING_V = 6 + 2
@@ -450,15 +461,19 @@ export function Technique() {
   const [clips, setClips] = useState<TechniqueClip[]>([])
   const [geminiCorrectionImages, setGeminiCorrectionImages] = useState<CorrectionPairRow[]>([])
   const [falCorrectionImages, setFalCorrectionImages] = useState<CorrectionPairRow[]>([])
-  /** Which provider's results to show when comparing Gemini vs fal.ai vs bundled test assets (dev) */
+  const [comfyCorrectionImages, setComfyCorrectionImages] = useState<CorrectionPairRow[]>([])
+  /** Which provider's results to show. Default is `comfy` (xevo production stack);
+   * Gemini/fal remain available as legacy chips when their results are present. */
   const [correctionImageSource, setCorrectionImageSource] = useState<
-    'gemini' | 'fal' | 'test'
-  >('gemini')
+    'gemini' | 'fal' | 'comfy' | 'test'
+  >('comfy')
   const [correctionsLoadingGemini, setCorrectionsLoadingGemini] = useState(false)
   const [correctionsLoadingFal, setCorrectionsLoadingFal] = useState(false)
+  const [correctionsLoadingComfy, setCorrectionsLoadingComfy] = useState(false)
   const [correctionsLoadingTest, setCorrectionsLoadingTest] = useState(false)
   const [correctionsError, setCorrectionsError] = useState<string | null>(null)
   const [correctionsFalError, setCorrectionsFalError] = useState<string | null>(null)
+  const [correctionsComfyError, setCorrectionsComfyError] = useState<string | null>(null)
   const [correctionsTestError, setCorrectionsTestError] = useState<string | null>(null)
   /** Server-extracted video frames paired with bundled testimgegen PNGs (no AI gen) */
   const [testPoseCorrectionImages, setTestPoseCorrectionImages] = useState<CorrectionPairRow[]>([])
@@ -472,19 +487,31 @@ export function Technique() {
     () => filterValidCorrectionPairs(falCorrectionImages),
     [falCorrectionImages]
   )
+  const visibleComfyCorrectionImages = useMemo(
+    () => filterValidCorrectionPairs(comfyCorrectionImages),
+    [comfyCorrectionImages]
+  )
 
   const correctionImages =
     correctionImageSource === 'fal'
       ? visibleFalCorrectionImages
-      : correctionImageSource === 'test'
-        ? testPoseCorrectionImages
-        : visibleGeminiCorrectionImages
+      : correctionImageSource === 'comfy'
+        ? visibleComfyCorrectionImages
+        : correctionImageSource === 'test'
+          ? testPoseCorrectionImages
+          : visibleGeminiCorrectionImages
   const correctionsLoading =
-    correctionsLoadingGemini || correctionsLoadingFal || correctionsLoadingTest
+    correctionsLoadingGemini ||
+    correctionsLoadingFal ||
+    correctionsLoadingComfy ||
+    correctionsLoadingTest
 
-  const canShowCorrectionSourceChips =
-    testPoseCorrectionImages.length > 0 ||
-    (visibleGeminiCorrectionImages.length > 0 && visibleFalCorrectionImages.length > 0)
+  const correctionProviderCount =
+    (visibleGeminiCorrectionImages.length > 0 ? 1 : 0) +
+    (visibleFalCorrectionImages.length > 0 ? 1 : 0) +
+    (visibleComfyCorrectionImages.length > 0 ? 1 : 0) +
+    (testPoseCorrectionImages.length > 0 ? 1 : 0)
+  const canShowCorrectionSourceChips = correctionProviderCount >= 2
 
   const [compareSplit, setCompareSplit] = useState(0.5)
   const [correctionViewMode, setCorrectionViewMode] = useState<'sideBySide' | 'drag'>('drag')
@@ -802,6 +829,11 @@ export function Technique() {
             originalImage: string
             correctedImage: string
           }>
+          correction_images_comfy?: Array<{
+            frame: number
+            originalImage: string
+            correctedImage: string
+          }>
         }
       | undefined
     if (!m) return
@@ -811,9 +843,13 @@ export function Technique() {
     if (Array.isArray(m.correction_images_fal) && m.correction_images_fal.length > 0) {
       setFalCorrectionImages(m.correction_images_fal)
     }
+    if (Array.isArray(m.correction_images_comfy) && m.correction_images_comfy.length > 0) {
+      setComfyCorrectionImages(m.correction_images_comfy)
+    }
   }, [
     analysisJson?.metrics?.correction_images,
     analysisJson?.metrics?.correction_images_fal,
+    analysisJson?.metrics?.correction_images_comfy,
   ])
 
   useEffect(() => {
@@ -822,29 +858,40 @@ export function Technique() {
   }, [analysisId])
 
   useEffect(() => {
-    if (
-      visibleGeminiCorrectionImages.length > 0 &&
-      visibleFalCorrectionImages.length > 0
-    ) {
+    if (correctionProviderCount >= 2) {
       return
     }
-    if (visibleFalCorrectionImages.length > 0 && visibleGeminiCorrectionImages.length === 0) {
+    if (
+      visibleFalCorrectionImages.length > 0 &&
+      visibleGeminiCorrectionImages.length === 0 &&
+      visibleComfyCorrectionImages.length === 0
+    ) {
       setCorrectionImageSource('fal')
     } else if (
-      visibleGeminiCorrectionImages.length > 0 &&
+      visibleComfyCorrectionImages.length > 0 &&
+      visibleGeminiCorrectionImages.length === 0 &&
       visibleFalCorrectionImages.length === 0
+    ) {
+      setCorrectionImageSource('comfy')
+    } else if (
+      visibleGeminiCorrectionImages.length > 0 &&
+      visibleFalCorrectionImages.length === 0 &&
+      visibleComfyCorrectionImages.length === 0
     ) {
       setCorrectionImageSource('gemini')
     } else if (
       testPoseCorrectionImages.length > 0 &&
       visibleGeminiCorrectionImages.length === 0 &&
-      visibleFalCorrectionImages.length === 0
+      visibleFalCorrectionImages.length === 0 &&
+      visibleComfyCorrectionImages.length === 0
     ) {
       setCorrectionImageSource('test')
     }
   }, [
+    correctionProviderCount,
     visibleGeminiCorrectionImages.length,
     visibleFalCorrectionImages.length,
+    visibleComfyCorrectionImages.length,
     testPoseCorrectionImages.length,
   ])
 
@@ -918,10 +965,13 @@ export function Technique() {
     setAnalysisError(null)
     setGeminiCorrectionImages([])
     setFalCorrectionImages([])
+    setComfyCorrectionImages([])
     setCorrectionsError(null)
     setCorrectionsFalError(null)
+    setCorrectionsComfyError(null)
     setCorrectionsLoadingGemini(false)
     setCorrectionsLoadingFal(false)
+    setCorrectionsLoadingComfy(false)
     setActiveCorrection(0)
     setCompareSplit(0.5)
     setCorrectionViewMode('drag')
@@ -1141,8 +1191,10 @@ export function Technique() {
           setAnalysisJson(null)
           setGeminiCorrectionImages([])
           setFalCorrectionImages([])
+          setComfyCorrectionImages([])
           setCorrectionsError(null)
           setCorrectionsFalError(null)
+          setCorrectionsComfyError(null)
           setActiveCorrection(0)
           setCompareSplit(0.5)
           setCorrectionViewMode('drag')
@@ -1174,15 +1226,20 @@ export function Technique() {
       return
     }
     try {
-      console.log('[Technique] Starting analysis for video', videoId)
+      const analyzeWallStart = Date.now()
+      console.log('[Technique] Starting analysis for video', videoId, {
+        note: 'POST /technique/analyze blocks until Modal + LLM + DB finish (often 2–6 min). Unsloth chat UI streams; this path does not yet.',
+      })
       setAnalysisLoading(true)
       setAnalysisError(null)
       if (options.resetState ?? true) {
         setAnalysisJson(null)
         setGeminiCorrectionImages([])
         setFalCorrectionImages([])
+        setComfyCorrectionImages([])
         setCorrectionsError(null)
         setCorrectionsFalError(null)
+        setCorrectionsComfyError(null)
         setActiveCorrection(0)
         setCompareSplit(0.5)
         setCorrectionViewMode('drag')
@@ -1199,9 +1256,11 @@ export function Technique() {
         })
         .catch((err) => ({ error: err?.message || 'Analyze failed' } as any))
 
+      const analyzePostMs = Date.now() - analyzeWallStart
       const body = ((res as any)?.data ?? res) as { analysisId?: string; error?: string }
       console.log('[Technique] Analyze response', {
         status: (res as any)?.status ?? null,
+        analyzePostMs,
         body,
       })
 
@@ -1242,7 +1301,19 @@ export function Technique() {
           feedbackText?: string
           error?: string
         }
-        console.log('[Technique] Analysis poll', { status: (pollRes as any)?.status ?? null, body: pollBody })
+        console.log('[Technique] Analysis poll', {
+          status: (pollRes as any)?.status ?? null,
+          elapsedMs: Date.now() - pollStart,
+          analyzePostMs,
+          body: {
+            status: pollBody.status,
+            hasAiScore: pollBody?.metrics?.ai_analysis?.score != null,
+            feedbackPreview:
+              typeof pollBody.feedbackText === 'string'
+                ? pollBody.feedbackText.slice(0, 80)
+                : null,
+          },
+        })
 
         if (pollBody?.error && !pollBody?.status) {
           setAnalysisError(pollBody.error || 'Failed to fetch analysis')
@@ -1272,6 +1343,11 @@ export function Technique() {
       }
 
       setAnalysisLoading(false)
+      console.log('[Technique] Analysis flow finished', {
+        done,
+        totalWallMs: Date.now() - analyzeWallStart,
+        analyzePostMs,
+      })
       if (done && (options.navigateOnDone ?? true)) {
         setStep(3)
       }
@@ -1283,7 +1359,13 @@ export function Technique() {
   }
 
   async function generateGeminiCorrectionImages() {
-    if (correctionsLoadingGemini || correctionsLoadingFal || correctionsLoadingTest || !analysisId)
+    if (
+      correctionsLoadingGemini ||
+      correctionsLoadingFal ||
+      correctionsLoadingComfy ||
+      correctionsLoadingTest ||
+      !analysisId
+    )
       return
     try {
       setCorrectionsLoadingGemini(true)
@@ -1340,7 +1422,13 @@ export function Technique() {
   }
 
   async function generateFalCorrectionImages() {
-    if (correctionsLoadingGemini || correctionsLoadingFal || correctionsLoadingTest || !analysisId)
+    if (
+      correctionsLoadingGemini ||
+      correctionsLoadingFal ||
+      correctionsLoadingComfy ||
+      correctionsLoadingTest ||
+      !analysisId
+    )
       return
     try {
       setCorrectionsLoadingFal(true)
@@ -1396,8 +1484,77 @@ export function Technique() {
     }
   }
 
+  async function generateComfyCorrectionImages() {
+    if (
+      correctionsLoadingGemini ||
+      correctionsLoadingFal ||
+      correctionsLoadingComfy ||
+      correctionsLoadingTest ||
+      !analysisId
+    )
+      return
+    try {
+      setCorrectionsLoadingComfy(true)
+      setCorrectionsComfyError(null)
+
+      const res = await authClient
+        .$fetch<{
+          corrections?: Array<{ frame: number; originalImage: string; correctedImage: string }>
+          error?: string
+        }>('/technique/correction-images', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ analysisId, imageProvider: 'comfy' }),
+        })
+        .catch((err) => ({ error: err?.message || 'Failed to generate ComfyUI corrections' } as any))
+
+      const body = ((res as any)?.data ?? res) as {
+        corrections?: Array<{ frame: number; originalImage: string; correctedImage: string }>
+        error?: unknown
+      }
+
+      if (body?.corrections && body.corrections.length > 0) {
+        setComfyCorrectionImages(body.corrections)
+        setCorrectionImageSource('comfy')
+        setActiveCorrection(0)
+        setCompareSplit(0.5)
+        setCorrectionViewMode('drag')
+      } else {
+        const apiError = body?.error
+        if (typeof apiError === 'string') {
+          setCorrectionsComfyError(apiError)
+        } else if (
+          apiError &&
+          typeof apiError === 'object' &&
+          typeof (apiError as any).message === 'string'
+        ) {
+          setCorrectionsComfyError((apiError as any).message)
+        } else {
+          setCorrectionsComfyError('No ComfyUI correction images returned')
+        }
+      }
+    } catch (err: any) {
+      console.error('[Technique] generateComfyCorrectionImages error', err)
+      if (typeof err?.message === 'string') {
+        setCorrectionsComfyError(err.message)
+      } else if (typeof err?.error === 'string') {
+        setCorrectionsComfyError(err.error)
+      } else {
+        setCorrectionsComfyError('Failed to generate ComfyUI corrections')
+      }
+    } finally {
+      setCorrectionsLoadingComfy(false)
+    }
+  }
+
   async function generateTestPoseExtraction() {
-    if (correctionsLoadingGemini || correctionsLoadingFal || correctionsLoadingTest || !analysisId)
+    if (
+      correctionsLoadingGemini ||
+      correctionsLoadingFal ||
+      correctionsLoadingComfy ||
+      correctionsLoadingTest ||
+      !analysisId
+    )
       return
     try {
       setCorrectionsLoadingTest(true)
@@ -2368,6 +2525,7 @@ export function Technique() {
                                 disabled={
                                   correctionsLoadingGemini ||
                                   correctionsLoadingFal ||
+                                  correctionsLoadingComfy ||
                                   correctionsLoadingTest ||
                                   !analysisId
                                 }
@@ -2384,41 +2542,66 @@ export function Technique() {
 
                             {canShowCorrectionSourceChips ? (
                               <View style={styles.correctionSourceRow}>
-                                <TouchableOpacity
-                                  onPress={() => {
-                                    if (visibleGeminiCorrectionImages.length > 0) {
-                                      setCorrectionImageSource('gemini')
-                                    }
-                                  }}
-                                  activeOpacity={0.85}
-                                  disabled={visibleGeminiCorrectionImages.length === 0}
-                                  style={[
-                                    styles.correctionSourceChip,
-                                    correctionImageSource === 'gemini' &&
-                                      styles.correctionSourceChipActive,
-                                    visibleGeminiCorrectionImages.length === 0 &&
-                                      styles.correctionSourceChipDisabled,
-                                  ]}
-                                >
-                                  <Text style={styles.correctionSourceChipText}>Gemini</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                  onPress={() => {
-                                    if (visibleFalCorrectionImages.length > 0) {
-                                      setCorrectionImageSource('fal')
-                                    }
-                                  }}
-                                  activeOpacity={0.85}
-                                  disabled={visibleFalCorrectionImages.length === 0}
-                                  style={[
-                                    styles.correctionSourceChip,
-                                    correctionImageSource === 'fal' && styles.correctionSourceChipActive,
-                                    visibleFalCorrectionImages.length === 0 &&
-                                      styles.correctionSourceChipDisabled,
-                                  ]}
-                                >
-                                  <Text style={styles.correctionSourceChipText}>fal.ai</Text>
-                                </TouchableOpacity>
+                                {(SHOW_LEGACY_CORRECTIONS ||
+                                  visibleGeminiCorrectionImages.length > 0) && (
+                                  <TouchableOpacity
+                                    onPress={() => {
+                                      if (visibleGeminiCorrectionImages.length > 0) {
+                                        setCorrectionImageSource('gemini')
+                                      }
+                                    }}
+                                    activeOpacity={0.85}
+                                    disabled={visibleGeminiCorrectionImages.length === 0}
+                                    style={[
+                                      styles.correctionSourceChip,
+                                      correctionImageSource === 'gemini' &&
+                                        styles.correctionSourceChipActive,
+                                      visibleGeminiCorrectionImages.length === 0 &&
+                                        styles.correctionSourceChipDisabled,
+                                    ]}
+                                  >
+                                    <Text style={styles.correctionSourceChipText}>Gemini</Text>
+                                  </TouchableOpacity>
+                                )}
+                                {(SHOW_LEGACY_CORRECTIONS || visibleFalCorrectionImages.length > 0) && (
+                                  <TouchableOpacity
+                                    onPress={() => {
+                                      if (visibleFalCorrectionImages.length > 0) {
+                                        setCorrectionImageSource('fal')
+                                      }
+                                    }}
+                                    activeOpacity={0.85}
+                                    disabled={visibleFalCorrectionImages.length === 0}
+                                    style={[
+                                      styles.correctionSourceChip,
+                                      correctionImageSource === 'fal' && styles.correctionSourceChipActive,
+                                      visibleFalCorrectionImages.length === 0 &&
+                                        styles.correctionSourceChipDisabled,
+                                    ]}
+                                  >
+                                    <Text style={styles.correctionSourceChipText}>fal.ai</Text>
+                                  </TouchableOpacity>
+                                )}
+                                {(SHOW_COMFY_CORRECTIONS || visibleComfyCorrectionImages.length > 0) && (
+                                  <TouchableOpacity
+                                    onPress={() => {
+                                      if (visibleComfyCorrectionImages.length > 0) {
+                                        setCorrectionImageSource('comfy')
+                                      }
+                                    }}
+                                    activeOpacity={0.85}
+                                    disabled={visibleComfyCorrectionImages.length === 0}
+                                    style={[
+                                      styles.correctionSourceChip,
+                                      correctionImageSource === 'comfy' &&
+                                        styles.correctionSourceChipActive,
+                                      visibleComfyCorrectionImages.length === 0 &&
+                                        styles.correctionSourceChipDisabled,
+                                    ]}
+                                  >
+                                    <Text style={styles.correctionSourceChipText}>ComfyUI</Text>
+                                  </TouchableOpacity>
+                                )}
                                 <TouchableOpacity
                                   onPress={() => {
                                     if (testPoseCorrectionImages.length > 0) {
@@ -2472,7 +2655,7 @@ export function Technique() {
                               </View>
                             )}
 
-                            {correctionsError && (
+                            {SHOW_LEGACY_CORRECTIONS && correctionsError && (
                               <View>
                                 <Text style={[styles.placeholderHint, { color: '#FF6B6B' }]}>
                                   {correctionsError}
@@ -2494,7 +2677,7 @@ export function Technique() {
                               </View>
                             )}
 
-                            {correctionsLoadingGemini && (
+                            {SHOW_LEGACY_CORRECTIONS && correctionsLoadingGemini && (
                               <View style={styles.correctionLoadingWrap}>
                                 <ActivityIndicator size="small" color="#00BBFF" />
                                 <Text style={[styles.correctionLoadingText, { marginTop: 8 }]}>
@@ -2503,7 +2686,8 @@ export function Technique() {
                               </View>
                             )}
 
-                            {geminiCorrectionImages.length === 0 &&
+                            {SHOW_LEGACY_CORRECTIONS &&
+                              geminiCorrectionImages.length === 0 &&
                               !correctionsLoadingGemini &&
                               !correctionsError && (
                                 <TouchableOpacity
@@ -2525,7 +2709,7 @@ export function Technique() {
                                 </TouchableOpacity>
                               )}
 
-                            {correctionsFalError && (
+                            {SHOW_LEGACY_CORRECTIONS && correctionsFalError && (
                               <View style={{ marginTop: 10 }}>
                                 <Text style={[styles.placeholderHint, { color: '#FF6B6B' }]}>
                                   {correctionsFalError}
@@ -2547,7 +2731,7 @@ export function Technique() {
                               </View>
                             )}
 
-                            {correctionsLoadingFal && (
+                            {SHOW_LEGACY_CORRECTIONS && correctionsLoadingFal && (
                               <View style={[styles.correctionLoadingWrap, { marginTop: 8 }]}>
                                 <ActivityIndicator size="small" color="#00BBFF" />
                                 <Text style={styles.correctionLoadingText}>
@@ -2576,6 +2760,79 @@ export function Technique() {
                                   </View>
                                 </TouchableOpacity>
                               )}
+
+                            {correctionsComfyError && (
+                              <View style={{ marginTop: 10 }}>
+                                <Text style={[styles.placeholderHint, { color: '#FF6B6B' }]}>
+                                  {correctionsComfyError}
+                                </Text>
+                                <TouchableOpacity
+                                  style={[styles.correctionGenerateButton, { marginTop: 8 }]}
+                                  onPress={generateComfyCorrectionImages}
+                                  activeOpacity={0.9}
+                                >
+                                  <LinearGradient
+                                    colors={['#0022FF', '#00BBFF']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={styles.correctionGenerateButtonInner}
+                                  >
+                                    <Text style={styles.correctionGenerateButtonText}>
+                                      Retry (ComfyUI)
+                                    </Text>
+                                  </LinearGradient>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+
+                            {correctionsLoadingComfy && (
+                              <View style={[styles.correctionLoadingWrap, { marginTop: 8 }]}>
+                                <ActivityIndicator size="small" color="#00BBFF" />
+                                <Text style={styles.correctionLoadingText}>
+                                  Running local ComfyUI workflow…
+                                </Text>
+                                <Text style={[styles.correctionLoadingText, { fontSize: 11, marginTop: 4 }]}>
+                                  GPU time varies (often 1–10 minutes)
+                                </Text>
+                              </View>
+                            )}
+
+                            {SHOW_COMFY_CORRECTIONS &&
+                              comfyCorrectionImages.length === 0 &&
+                              !correctionsLoadingComfy &&
+                              !correctionsComfyError &&
+                              (SHOW_LEGACY_CORRECTIONS ? (
+                                <TouchableOpacity
+                                  style={[styles.correctionGenerateButtonSecondary, { marginTop: 8 }]}
+                                  onPress={generateComfyCorrectionImages}
+                                  activeOpacity={0.9}
+                                >
+                                  <View style={styles.correctionGenerateButtonSecondaryInner}>
+                                    <FeatherIcon name="cpu" size={16} color="#00BBFF" />
+                                    <Text style={styles.correctionGenerateButtonSecondaryText}>
+                                      Generate with ComfyUI (local)
+                                    </Text>
+                                  </View>
+                                </TouchableOpacity>
+                              ) : (
+                                <TouchableOpacity
+                                  style={styles.correctionGenerateButton}
+                                  onPress={generateComfyCorrectionImages}
+                                  activeOpacity={0.9}
+                                >
+                                  <LinearGradient
+                                    colors={['#0022FF', '#00BBFF']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={styles.correctionGenerateButtonInner}
+                                  >
+                                    <FeatherIcon name="zap" size={16} color="#fff" />
+                                    <Text style={styles.correctionGenerateButtonText}>
+                                      Generate Corrected Poses
+                                    </Text>
+                                  </LinearGradient>
+                                </TouchableOpacity>
+                              ))}
 
                             {correctionImages.length > 0 && (
                               <View style={styles.correctionCarousel}>
