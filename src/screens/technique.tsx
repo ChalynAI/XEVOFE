@@ -2017,15 +2017,41 @@ export function Technique() {
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({ analysisId }),
         })
-        .catch((err) => ({ error: err?.message || 'Failed to generate video' } as any))
+        .catch((err: any) => {
+          const nested =
+            err?.error?.error ??
+            err?.error?.message ??
+            err?.data?.error ??
+            err?.message
+          return {
+            error:
+              typeof nested === 'string'
+                ? nested
+                : nested && typeof nested === 'object' && typeof nested.message === 'string'
+                  ? nested.message
+                  : 'Failed to generate video',
+          } as { error: string }
+        })
 
-      const body = ((res as any)?.data ?? res) as {
+      const raw = res as any
+      const body = (raw?.data ?? raw) as {
         frame?: number
         startImage?: string
         video?: string
         poseVideo?: string
         error?: unknown
       }
+
+      const extractError = (value: unknown): string | null => {
+        if (typeof value === 'string' && value.trim()) return value.trim()
+        if (value && typeof value === 'object') {
+          const o = value as { message?: unknown; error?: unknown }
+          if (typeof o.message === 'string' && o.message.trim()) return o.message.trim()
+          if (typeof o.error === 'string' && o.error.trim()) return o.error.trim()
+        }
+        return null
+      }
+
       if (typeof body?.video === 'string' && body.video.trim()) {
         setCorrectionVideo({
           frame: typeof body.frame === 'number' ? body.frame : 0,
@@ -2037,18 +2063,12 @@ export function Technique() {
               : undefined,
         })
       } else {
-        const apiError = body?.error
-        if (typeof apiError === 'string') {
-          setCorrectionsVideoError(apiError)
-        } else if (
-          apiError &&
-          typeof apiError === 'object' &&
-          typeof (apiError as { message?: string }).message === 'string'
-        ) {
-          setCorrectionsVideoError((apiError as { message: string }).message)
-        } else {
-          setCorrectionsVideoError('No correction video returned')
-        }
+        const apiError =
+          extractError(body?.error) ||
+          extractError(raw?.error) ||
+          extractError(raw?.error?.error) ||
+          extractError(raw?.error?.message)
+        setCorrectionsVideoError(apiError || 'Video generation failed')
       }
     } catch (err: any) {
       console.error('[Technique] generateComfyCorrectionVideo error', err)
