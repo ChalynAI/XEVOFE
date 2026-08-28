@@ -27,6 +27,7 @@ import {
   storedAiScoreToPercent,
 } from '../lib/techniqueScoreDisplay'
 import { TechniqueAnalysisVideoPanel } from '../components/TechniqueAnalysisVideoPanel'
+import { Video, ResizeMode } from 'expo-av'
 import {
   CoachAnalysisAccordions,
   CoachDoneWellSection,
@@ -57,6 +58,10 @@ import { ProLibraryGradientFrame, ProLibraryGradientProgressBar } from '../compo
 import { proLibraryChrome } from '../theme/proLibraryChrome'
 
 const API_ROOT = DOMAIN.replace(/\/+$/, '')
+const SHOW_COMFY_CORRECTIONS =
+  String(process.env.EXPO_PUBLIC_SHOW_COMFY_CORRECTIONS ?? '')
+    .trim()
+    .toLowerCase() === 'true'
 
 const ACTIVITIES_STAR_SVG = require('../../assets/actiities/star.svg')
 const GOOD_INDICATOR_ICON = require('../../assets/videoanalysis/goodindicator.svg')
@@ -418,6 +423,22 @@ function getStyles(theme: any) {
       borderRadius: 8,
       backgroundColor: '#000',
     },
+    correctionWanVideo: {
+      width: '100%',
+      aspectRatio: 16 / 9,
+      borderRadius: 8,
+      backgroundColor: '#000',
+      overflow: 'hidden',
+      marginTop: 8,
+    },
+    correctionPoseVideo: {
+      width: 140,
+      aspectRatio: 1,
+      borderRadius: 8,
+      backgroundColor: '#000',
+      overflow: 'hidden',
+      marginTop: 8,
+    },
     correctionsLoadingRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -609,6 +630,12 @@ export function ActivitiesVideoAnalysis({
   const [activeCorrection, setActiveCorrection] = useState(0)
   const [correctionsLoading, setCorrectionsLoading] = useState(false)
   const [hasCorrectionImagesFlag, setHasCorrectionImagesFlag] = useState(false)
+  const [correctionVideo, setCorrectionVideo] = useState<{
+    frame: number
+    startImage: string
+    video: string
+    poseVideo?: string
+  } | null>(null)
 
   const [isFavorite, setIsFavorite] = useState(false)
 
@@ -664,6 +691,7 @@ export function ActivitiesVideoAnalysis({
     setActiveCorrection(0)
     setCorrectionsLoading(false)
     setHasCorrectionImagesFlag(false)
+    setCorrectionVideo(null)
     setTotalVidFrames(1)
     ;(async () => {
       try {
@@ -757,24 +785,52 @@ export function ActivitiesVideoAnalysis({
         setTotalVidFrames(tf)
         const expectsCorrections = metrics?.has_correction_images === true
         setHasCorrectionImagesFlag(expectsCorrections)
+        const expectsVideo =
+          SHOW_COMFY_CORRECTIONS && metrics?.has_correction_videos === true
 
-        if (!expectsCorrections) return
+        if (!expectsCorrections && !expectsVideo) return
 
         setCorrectionsLoading(true)
-        const corrRes = await authClient
-          .$fetch(`/technique/analysis/${session.analysisId}/correction-images`, {
-            method: 'GET',
-          })
-          .catch(() => null)
+        const [corrRes, videoRes] = await Promise.all([
+          expectsCorrections
+            ? authClient
+                .$fetch(`/technique/analysis/${session.analysisId}/correction-images`, {
+                  method: 'GET',
+                })
+                .catch(() => null)
+            : Promise.resolve(null),
+          expectsVideo
+            ? authClient
+                .$fetch(`/technique/analysis/${session.analysisId}/correction-videos`, {
+                  method: 'GET',
+                })
+                .catch(() => null)
+            : Promise.resolve(null),
+        ])
         if (!cancelled) {
-          const corrBody: any = (corrRes as any)?.data ?? corrRes
-          const geminiParsed = parseCorrectionImages(corrBody?.correction_images)
-          const falParsed = parseCorrectionImages(corrBody?.correction_images_fal)
-          setCorrectionGemini(geminiParsed)
-          setCorrectionFal(falParsed)
-          const ctxParsed = parseCorrectionContext(corrBody?.correction_context)
-          setCorrectionCoaching(ctxParsed.coaching)
-          setActiveCorrection(0)
+          if (corrRes) {
+            const corrBody: any = (corrRes as any)?.data ?? corrRes
+            const geminiParsed = parseCorrectionImages(corrBody?.correction_images)
+            const falParsed = parseCorrectionImages(corrBody?.correction_images_fal)
+            setCorrectionGemini(geminiParsed)
+            setCorrectionFal(falParsed)
+            const ctxParsed = parseCorrectionContext(corrBody?.correction_context)
+            setCorrectionCoaching(ctxParsed.coaching)
+            setActiveCorrection(0)
+          }
+          const videoBody: any = (videoRes as any)?.data ?? videoRes
+          if (typeof videoBody?.video === 'string' && videoBody.video.trim()) {
+            setCorrectionVideo({
+              frame: typeof videoBody.frame === 'number' ? videoBody.frame : 0,
+              startImage:
+                typeof videoBody.startImage === 'string' ? videoBody.startImage : '',
+              video: videoBody.video.trim(),
+              poseVideo:
+                typeof videoBody.poseVideo === 'string' && videoBody.poseVideo.trim()
+                  ? videoBody.poseVideo.trim()
+                  : undefined,
+            })
+          }
         }
       } catch {
         /* no pose overlay */
@@ -889,7 +945,10 @@ export function ActivitiesVideoAnalysis({
   }, [correctionPairs.length])
 
   const showCorrectionsSection =
-    hasCorrectionImagesFlag || correctionGemini.length > 0 || correctionFal.length > 0
+    hasCorrectionImagesFlag ||
+    correctionGemini.length > 0 ||
+    correctionFal.length > 0 ||
+    Boolean(correctionVideo?.video)
   const showWrittenEmpty = aiSections != null && !hasAiStructured && !hasNotesExtra
   const coachFeedback = session.coachFeedbackText?.trim() ?? ''
   const coachAnnotations = useMemo(
@@ -1305,6 +1364,40 @@ export function ActivitiesVideoAnalysis({
               </>
             ) : null}
             {coachReviewSection}
+            {SHOW_COMFY_CORRECTIONS && correctionVideo?.video ? (
+              <View style={{ marginTop: 14 }}>
+                <Text allowFontScaling={false} style={styles.summarySectionTitle}>
+                  {t('analysis.correctedVideo')}
+                </Text>
+                <Video
+                  source={{ uri: toDisplayImageUri(correctionVideo.video) }}
+                  posterSource={
+                    correctionVideo.startImage
+                      ? { uri: toDisplayImageUri(correctionVideo.startImage) }
+                      : undefined
+                  }
+                  usePoster={Boolean(correctionVideo.startImage)}
+                  style={styles.correctionWanVideo}
+                  resizeMode={ResizeMode.CONTAIN}
+                  useNativeControls
+                  isLooping
+                />
+                {correctionVideo.poseVideo ? (
+                  <View style={{ marginTop: 8 }}>
+                    <Text allowFontScaling={false} style={styles.correctionPairColLabel}>
+                      {t('analysis.poseControlPreview')}
+                    </Text>
+                    <Video
+                      source={{ uri: toDisplayImageUri(correctionVideo.poseVideo) }}
+                      style={styles.correctionPoseVideo}
+                      resizeMode={ResizeMode.CONTAIN}
+                      useNativeControls
+                      isLooping
+                    />
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
 

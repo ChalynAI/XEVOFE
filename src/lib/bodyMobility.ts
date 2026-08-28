@@ -32,6 +32,43 @@ export const MOBILITY_JOINT_KEYS: MobilityJointKey[] = [
   'knee',
 ]
 
+/** Joints shown under Left/Right tabs (head is shared / midline). */
+export const SIDE_MOBILITY_JOINT_KEYS: MobilityJointKey[] = [
+  'shoulder',
+  'wrist',
+  'knee',
+]
+
+const HEAD_COLLAPSED_MAX_DEG = 12
+
+function isCollapsedHead(deg: number | null): boolean {
+  return deg == null || deg <= HEAD_COLLAPSED_MAX_DEG
+}
+
+/**
+ * Single Head reading for UI: prefer non-collapsed `you`, then higher angle.
+ * Returns which body side supplied the preferred `you` (for optional chip).
+ */
+export function pickSharedHeadReading(
+  left: SideMobilityReadings,
+  right: SideMobilityReadings
+): { reading: MobilityJointReading; side: BodySide } {
+  const l = left.head
+  const r = right.head
+  const lCollapsed = isCollapsedHead(l.you)
+  const rCollapsed = isCollapsedHead(r.you)
+  if (!lCollapsed && !rCollapsed) {
+    if ((r.you ?? 0) > (l.you ?? 0)) return { reading: r, side: 'RIGHT' }
+    return { reading: l, side: 'LEFT' }
+  }
+  if (lCollapsed && !rCollapsed) return { reading: r, side: 'RIGHT' }
+  if (rCollapsed && !lCollapsed) return { reading: l, side: 'LEFT' }
+  if (r.you != null && (l.you == null || r.you >= l.you)) {
+    return { reading: r, side: 'RIGHT' }
+  }
+  return { reading: l, side: 'LEFT' }
+}
+
 const GAUGE_MAX_DEG = 180
 const GAUGE_SEGMENTS = 5
 const MATCH_REF_DEG = 90
@@ -202,71 +239,73 @@ export function buildSideReadings(
   return out
 }
 
-/** Padel kinetic-chain blurbs from delta direction. No em dashes. */
-export function mobilityBlurb(
+/** i18n key under `technique.bodyMobility` for the kinetic-chain blurb. */
+export function mobilityBlurbKey(
   joint: MobilityJointKey,
   reading: MobilityJointReading
 ): string {
   const { you, ideal, status } = reading
-  if (you == null) return 'Keep filming so we can read this joint clearly.'
-  if (ideal == null || status == null) {
-    return 'Solid read on your motion. Pro match still pending.'
-  }
+  if (you == null) return 'blurb.noRead'
+  if (ideal == null || status == null) return 'blurb.pendingIdeal'
+
   const short = you < ideal - 2
   const long = you > ideal + 2
+  const suffix =
+    status === 'good'
+      ? 'good'
+      : status === 'okay'
+        ? short
+          ? 'okayShort'
+          : long
+            ? 'okayLong'
+            : 'okay'
+        : short
+          ? 'badShort'
+          : long
+            ? 'badLong'
+            : 'bad'
 
-  if (joint === 'head') {
-    if (status === 'good') {
-      return 'Head stays quiet and tracks the ball like the pro.'
-    }
-    if (status === 'okay') {
-      if (short) return 'Settle the head a touch. Eyes on the ball through contact.'
-      if (long) return 'Ease the head line toward the pro. Keep vision steady.'
-      return 'Head is close. Soften any tilt through the hit.'
-    }
-    if (short) return 'Lift and steady the head so the chain can finish clean.'
-    if (long) return 'Bring the head quieter toward the pro and watch the ball.'
-    return 'Steady the head. Quiet eyes help the whole kinetic chain.'
-  }
+  return `blurb.${joint}.${suffix}`
+}
 
-  if (joint === 'shoulder') {
-    if (status === 'good') {
-      return 'Shoulder transfers power well. Keep that smooth rotation.'
-    }
-    if (status === 'okay') {
-      if (short) return 'Open the shoulder a touch so energy flows into the arm.'
-      if (long) return 'Ease shoulder load toward the pro. Let the trunk lead.'
-      return 'Shoulder is close. Lead with hips then let the arm follow.'
-    }
-    if (short) return 'Free the shoulder toward the pro so the arm is not jammed.'
-    if (long) return 'Dial the shoulder back. Power should come from the chain.'
-    return 'Reset shoulder timing. Hips and trunk should load it first.'
+/** @deprecated Prefer mobilityBlurbKey + t(); kept for English fallback. */
+export function mobilityBlurb(
+  joint: MobilityJointKey,
+  reading: MobilityJointReading
+): string {
+  const key = mobilityBlurbKey(joint, reading)
+  // English fallbacks matching en.ts (used only if caller skips i18n).
+  const EN: Record<string, string> = {
+    'blurb.noRead': 'Keep filming so we can read this joint clearly.',
+    'blurb.pendingIdeal': 'Solid read on your motion. Pro match still pending.',
+    'blurb.head.good': 'Head stays quiet and tracks the ball like the pro.',
+    'blurb.head.okayShort': 'Settle the head a touch. Eyes on the ball through contact.',
+    'blurb.head.okayLong': 'Ease the head line toward the pro. Keep vision steady.',
+    'blurb.head.okay': 'Head is close. Soften any tilt through the hit.',
+    'blurb.head.badShort': 'Lift and steady the head so the chain can finish clean.',
+    'blurb.head.badLong': 'Bring the head quieter toward the pro and watch the ball.',
+    'blurb.head.bad': 'Steady the head. Quiet eyes help the whole kinetic chain.',
+    'blurb.shoulder.good': 'Shoulder transfers power well. Keep that smooth rotation.',
+    'blurb.shoulder.okayShort': 'Open the shoulder a touch so energy flows into the arm.',
+    'blurb.shoulder.okayLong': 'Ease shoulder load toward the pro. Let the trunk lead.',
+    'blurb.shoulder.okay': 'Shoulder is close. Lead with hips then let the arm follow.',
+    'blurb.shoulder.badShort': 'Free the shoulder toward the pro so the arm is not jammed.',
+    'blurb.shoulder.badLong': 'Dial the shoulder back. Power should come from the chain.',
+    'blurb.shoulder.bad': 'Reset shoulder timing. Hips and trunk should load it first.',
+    'blurb.wrist.good': 'Wrist tracks the pro. Keep that firm release through contact.',
+    'blurb.wrist.okayShort': 'Open the wrist a touch toward the pro before release.',
+    'blurb.wrist.okayLong': 'Ease the wrist toward the pro. Firm early, release late.',
+    'blurb.wrist.okay': 'Wrist is close. Hold firm then snap through the ball.',
+    'blurb.wrist.badShort': 'Unlock the wrist toward the pro so the second pendulum works.',
+    'blurb.wrist.badLong': 'Settle the wrist. Premature snap scrubs pace and control.',
+    'blurb.wrist.bad': 'Rebuild wrist timing. Firm to contact, then release clean.',
+    'blurb.knee.good': 'Knee loads like the pro. Keep that athletic flex from the ground.',
+    'blurb.knee.okayShort': 'Bend the knee a touch more so the legs start the chain.',
+    'blurb.knee.okayLong': 'Ease knee extension toward the pro. Stay loaded, not locked.',
+    'blurb.knee.okay': 'Knee is close. Hold the flex that feeds power upward.',
+    'blurb.knee.badShort': 'Bend the knee more toward the pro so the chain loads from the ground.',
+    'blurb.knee.badLong': 'Softer knee toward the pro. A locked leg breaks the chain.',
+    'blurb.knee.bad': 'Rebuild knee flex. Legs and hips should start every stroke.',
   }
-
-  if (joint === 'wrist') {
-    if (status === 'good') {
-      return 'Wrist tracks the pro. Keep that firm release through contact.'
-    }
-    if (status === 'okay') {
-      if (short) return 'Open the wrist a touch toward the pro before release.'
-      if (long) return 'Ease the wrist toward the pro. Firm early, release late.'
-      return 'Wrist is close. Hold firm then snap through the ball.'
-    }
-    if (short) return 'Unlock the wrist toward the pro so the second pendulum works.'
-    if (long) return 'Settle the wrist. Premature snap scrubs pace and control.'
-    return 'Rebuild wrist timing. Firm to contact, then release clean.'
-  }
-
-  // knee
-  if (status === 'good') {
-    return 'Knee loads like the pro. Keep that athletic flex from the ground.'
-  }
-  if (status === 'okay') {
-    if (short) return 'Bend the knee a touch more so the legs start the chain.'
-    if (long) return 'Ease knee extension toward the pro. Stay loaded, not locked.'
-    return 'Knee is close. Hold the flex that feeds power upward.'
-  }
-  if (short) return 'Bend the knee more toward the pro so the chain loads from the ground.'
-  if (long) return 'Softer knee toward the pro. A locked leg breaks the chain.'
-  return 'Rebuild knee flex. Legs and hips should start every stroke.'
+  return EN[key] ?? EN['blurb.noRead']!
 }

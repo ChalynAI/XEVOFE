@@ -2,7 +2,8 @@ import React, { useMemo, useState } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import {
-  MOBILITY_JOINT_KEYS,
+  SIDE_MOBILITY_JOINT_KEYS,
+  pickSharedHeadReading,
   type BodySide,
   type MobilityJointKey,
   type SideMobilityReadings,
@@ -43,9 +44,17 @@ export function BodyMobilitySection({ data }: BodyMobilitySectionProps) {
   if (!data?.side) return null
 
   const readings = data.side[side]
+  const sharedHead = pickSharedHeadReading(data.side.LEFT, data.side.RIGHT)
 
   return (
     <View style={styles.wrap}>
+      <BodyMobilityGaugeCard
+        joint="head"
+        reading={sharedHead.reading}
+        side={null}
+        emblem={EMBLEMS.head}
+      />
+
       <View style={styles.tabs}>
         <TouchableOpacity
           style={[styles.tab, side === 'RIGHT' && styles.tabActive]}
@@ -73,7 +82,7 @@ export function BodyMobilitySection({ data }: BodyMobilitySectionProps) {
         </TouchableOpacity>
       </View>
 
-      {MOBILITY_JOINT_KEYS.map((joint) => (
+      {SIDE_MOBILITY_JOINT_KEYS.map((joint) => (
         <BodyMobilityGaugeCard
           key={`${side}-${joint}`}
           joint={joint}
@@ -101,20 +110,19 @@ function getStyles() {
     tab: {
       flex: 1,
       paddingVertical: 10,
-      paddingHorizontal: 12,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: 'rgba(0, 184, 255, 0.28)',
-      backgroundColor: 'transparent',
+      borderRadius: 12,
       alignItems: 'center',
+      backgroundColor: 'rgba(255,255,255,0.06)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.08)',
     },
     tabActive: {
-      backgroundColor: 'rgba(0, 110, 255, 0.35)',
-      borderColor: '#00B8FF',
+      backgroundColor: 'rgba(0, 184, 255, 0.18)',
+      borderColor: 'rgba(0, 184, 255, 0.45)',
     },
     tabText: {
-      color: 'rgba(160, 200, 220, 0.65)',
-      fontSize: 13,
+      color: 'rgba(255,255,255,0.55)',
+      fontSize: 14,
       fontWeight: '600',
     },
     tabTextActive: {

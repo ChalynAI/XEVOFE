@@ -167,6 +167,11 @@ const SHOW_COMFY_CORRECTIONS =
     .trim()
     .toLowerCase() === 'true'
 /**
+ * Step 3 still-image generate CTAs (Gemini / fal / Comfy corrected poses).
+ * Handlers and routes stay; this round is Generate Video only in the UI.
+ */
+const SHOW_STEP3_STILL_GENERATE_BUTTONS = false
+/**
  * Legacy correction providers (Gemini + fal.ai) — chips, retry buttons, and the
  * primary "Generate Corrected Poses" button (which historically routed to Gemini).
  * Default OFF so testing the Comfy/Qwen path is unambiguous: no silent fallbacks,
@@ -294,6 +299,13 @@ type CorrectionPairRow = {
   correctedImage: string | number | ImageSourcePropType
 }
 
+type CorrectionVideoRow = {
+  frame: number
+  startImage: string
+  video: string
+  poseVideo?: string
+}
+
 function isUsableCorrectionImageUri(uri: string): boolean {
   const u = typeof uri === 'string' ? uri.trim() : ''
   if (u.length < 12) return false
@@ -350,6 +362,14 @@ function toImageSource(uriOrModule: string | number | ImageSourcePropType): Imag
     return { uri: s }
   }
   return { uri: s }
+}
+
+function toMediaUri(path: string): string {
+  const s = path.trim()
+  if (s.startsWith('/uploads/')) {
+    return `${DOMAIN.replace(/\/+$/, '')}${s}`
+  }
+  return s
 }
 
 /** Bundled test “corrected” frames — use `require()` ids so web/native both work (no `resolveAssetSource`). */
@@ -467,6 +487,9 @@ export function Technique() {
   const [correctionsError, setCorrectionsError] = useState<string | null>(null)
   const [correctionsFalError, setCorrectionsFalError] = useState<string | null>(null)
   const [correctionsComfyError, setCorrectionsComfyError] = useState<string | null>(null)
+  const [correctionVideo, setCorrectionVideo] = useState<CorrectionVideoRow | null>(null)
+  const [correctionsLoadingVideo, setCorrectionsLoadingVideo] = useState(false)
+  const [correctionsVideoError, setCorrectionsVideoError] = useState<string | null>(null)
   const [correctionsTestError, setCorrectionsTestError] = useState<string | null>(null)
   /** Server-extracted video frames paired with bundled testimgegen PNGs (no AI gen) */
   const [testPoseCorrectionImages, setTestPoseCorrectionImages] = useState<CorrectionPairRow[]>([])
@@ -1090,6 +1113,55 @@ export function Technique() {
   ])
 
   useEffect(() => {
+    if (!SHOW_COMFY_CORRECTIONS) return
+    if (!analysisId || analysisJson?.status !== 'completed') return
+    if (correctionVideo?.video) return
+    if (analysisJson?.metrics?.has_correction_videos !== true) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await authClient
+          .$fetch<{
+            frame?: number | null
+            startImage?: string | null
+            video?: string | null
+            poseVideo?: string | null
+          }>(`/technique/analysis/${analysisId}/correction-videos`, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+          })
+          .catch(() => null)
+        const body = ((res as { data?: unknown })?.data ?? res) as {
+          frame?: number | null
+          startImage?: string | null
+          video?: string | null
+          poseVideo?: string | null
+        } | null
+        if (cancelled || !body || typeof body.video !== 'string' || !body.video.trim()) return
+        setCorrectionVideo({
+          frame: typeof body.frame === 'number' ? body.frame : 0,
+          startImage: typeof body.startImage === 'string' ? body.startImage : '',
+          video: body.video.trim(),
+          poseVideo:
+            typeof body.poseVideo === 'string' && body.poseVideo.trim()
+              ? body.poseVideo.trim()
+              : undefined,
+        })
+      } catch {
+        /* cached video optional */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    analysisId,
+    analysisJson?.status,
+    analysisJson?.metrics?.has_correction_videos,
+    correctionVideo?.video,
+  ])
+
+  useEffect(() => {
     setTestPoseCorrectionImages([])
     setCorrectionsTestError(null)
   }, [analysisId])
@@ -1246,9 +1318,12 @@ export function Technique() {
     setCorrectionsError(null)
     setCorrectionsFalError(null)
     setCorrectionsComfyError(null)
+    setCorrectionVideo(null)
+    setCorrectionsVideoError(null)
     setCorrectionsLoadingGemini(false)
     setCorrectionsLoadingFal(false)
     setCorrectionsLoadingComfy(false)
+    setCorrectionsLoadingVideo(false)
     setActiveCorrection(0)
     setCompareSplit(0.5)
     setCorrectionViewMode('drag')
@@ -1922,6 +1997,66 @@ export function Technique() {
       }
     } finally {
       setCorrectionsLoadingComfy(false)
+    }
+  }
+
+  async function generateComfyCorrectionVideo() {
+    if (correctionsLoadingVideo || !analysisId) return
+    try {
+      setCorrectionsLoadingVideo(true)
+      setCorrectionsVideoError(null)
+      const res = await authClient
+        .$fetch<{
+          frame?: number
+          startImage?: string
+          video?: string
+          poseVideo?: string
+          error?: string
+        }>('/technique/correction-videos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ analysisId }),
+        })
+        .catch((err) => ({ error: err?.message || 'Failed to generate video' } as any))
+
+      const body = ((res as any)?.data ?? res) as {
+        frame?: number
+        startImage?: string
+        video?: string
+        poseVideo?: string
+        error?: unknown
+      }
+      if (typeof body?.video === 'string' && body.video.trim()) {
+        setCorrectionVideo({
+          frame: typeof body.frame === 'number' ? body.frame : 0,
+          startImage: typeof body.startImage === 'string' ? body.startImage : '',
+          video: body.video.trim(),
+          poseVideo:
+            typeof body.poseVideo === 'string' && body.poseVideo.trim()
+              ? body.poseVideo.trim()
+              : undefined,
+        })
+      } else {
+        const apiError = body?.error
+        if (typeof apiError === 'string') {
+          setCorrectionsVideoError(apiError)
+        } else if (
+          apiError &&
+          typeof apiError === 'object' &&
+          typeof (apiError as { message?: string }).message === 'string'
+        ) {
+          setCorrectionsVideoError((apiError as { message: string }).message)
+        } else {
+          setCorrectionsVideoError('No correction video returned')
+        }
+      }
+    } catch (err: any) {
+      console.error('[Technique] generateComfyCorrectionVideo error', err)
+      setCorrectionsVideoError(
+        typeof err?.message === 'string' ? err.message : 'Failed to generate video'
+      )
+    } finally {
+      setCorrectionsLoadingVideo(false)
     }
   }
 
@@ -3246,7 +3381,7 @@ export function Technique() {
                               </View>
                             )}
 
-                            {correctionsError && (
+                            {SHOW_STEP3_STILL_GENERATE_BUTTONS && correctionsError && (
                               <View>
                                 <Text style={[styles.placeholderHint, { color: '#FF6B6B' }]}>
                                   {correctionsError}
@@ -3268,7 +3403,7 @@ export function Technique() {
                               </View>
                             )}
 
-                            {correctionsLoadingGemini && (
+                            {SHOW_STEP3_STILL_GENERATE_BUTTONS && correctionsLoadingGemini && (
                               <View style={styles.correctionLoadingWrap}>
                                 <ActivityIndicator size="small" color="#00BBFF" />
                                 <Text style={[styles.correctionLoadingText, { marginTop: 8 }]}>
@@ -3280,7 +3415,8 @@ export function Technique() {
                               </View>
                             )}
 
-                            {geminiCorrectionImages.length === 0 &&
+                            {SHOW_STEP3_STILL_GENERATE_BUTTONS &&
+                              geminiCorrectionImages.length === 0 &&
                               !correctionsLoadingGemini &&
                               !correctionsError && (
                                 <TouchableOpacity
@@ -3302,7 +3438,9 @@ export function Technique() {
                                 </TouchableOpacity>
                               )}
 
-                            {SHOW_LEGACY_CORRECTIONS && correctionsFalError && (
+                            {SHOW_STEP3_STILL_GENERATE_BUTTONS &&
+                              SHOW_LEGACY_CORRECTIONS &&
+                              correctionsFalError && (
                               <View style={{ marginTop: 10 }}>
                                 <Text style={[styles.placeholderHint, { color: '#FF6B6B' }]}>
                                   {correctionsFalError}
@@ -3324,7 +3462,9 @@ export function Technique() {
                               </View>
                             )}
 
-                            {SHOW_LEGACY_CORRECTIONS && correctionsLoadingFal && (
+                            {SHOW_STEP3_STILL_GENERATE_BUTTONS &&
+                              SHOW_LEGACY_CORRECTIONS &&
+                              correctionsLoadingFal && (
                               <View style={[styles.correctionLoadingWrap, { marginTop: 8 }]}>
                                 <ActivityIndicator size="small" color="#00BBFF" />
                                 <Text style={styles.correctionLoadingText}>
@@ -3336,7 +3476,8 @@ export function Technique() {
                               </View>
                             )}
 
-                            {SHOW_GENERATE_FAL_FLUX &&
+                            {SHOW_STEP3_STILL_GENERATE_BUTTONS &&
+                              SHOW_GENERATE_FAL_FLUX &&
                               falCorrectionImages.length === 0 &&
                               !correctionsLoadingFal &&
                               !correctionsFalError && (
@@ -3354,7 +3495,9 @@ export function Technique() {
                                 </TouchableOpacity>
                               )}
 
-                            {SHOW_COMFY_CORRECTIONS && correctionsComfyError && (
+                            {SHOW_STEP3_STILL_GENERATE_BUTTONS &&
+                              SHOW_COMFY_CORRECTIONS &&
+                              correctionsComfyError && (
                               <View style={{ marginTop: 10 }}>
                                 <Text style={[styles.placeholderHint, { color: '#FF6B6B' }]}>
                                   {correctionsComfyError}
@@ -3376,7 +3519,9 @@ export function Technique() {
                               </View>
                             )}
 
-                            {SHOW_COMFY_CORRECTIONS && correctionsLoadingComfy && (
+                            {SHOW_STEP3_STILL_GENERATE_BUTTONS &&
+                              SHOW_COMFY_CORRECTIONS &&
+                              correctionsLoadingComfy && (
                               <View style={[styles.correctionLoadingWrap, { marginTop: 8 }]}>
                                 <ActivityIndicator size="small" color="#00BBFF" />
                                 <Text style={styles.correctionLoadingText}>
@@ -3388,7 +3533,8 @@ export function Technique() {
                               </View>
                             )}
 
-                            {SHOW_COMFY_CORRECTIONS &&
+                            {SHOW_STEP3_STILL_GENERATE_BUTTONS &&
+                              SHOW_COMFY_CORRECTIONS &&
                               comfyCorrectionImages.length === 0 &&
                               !correctionsLoadingComfy &&
                               !correctionsComfyError &&
@@ -3424,6 +3570,95 @@ export function Technique() {
                                   </LinearGradient>
                                 </TouchableOpacity>
                               ))}
+
+                            {SHOW_COMFY_CORRECTIONS && correctionsVideoError && (
+                              <View style={{ marginTop: 10 }}>
+                                <Text style={[styles.placeholderHint, { color: '#FF6B6B' }]}>
+                                  {correctionsVideoError}
+                                </Text>
+                                <TouchableOpacity
+                                  style={[styles.correctionGenerateButton, { marginTop: 8 }]}
+                                  onPress={() => void generateComfyCorrectionVideo()}
+                                  activeOpacity={0.9}
+                                >
+                                  <LinearGradient
+                                    colors={['#0022FF', '#00BBFF']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={styles.correctionGenerateButtonInner}
+                                  >
+                                    <Text style={styles.correctionGenerateButtonText}>{t('technique.retry')}</Text>
+                                  </LinearGradient>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+
+                            {SHOW_COMFY_CORRECTIONS && correctionsLoadingVideo && (
+                              <View style={[styles.correctionLoadingWrap, { marginTop: 8 }]}>
+                                <ActivityIndicator size="small" color="#00BBFF" />
+                                <Text style={styles.correctionLoadingText}>
+                                  {t('technique.generatingVideo')}
+                                </Text>
+                                <Text style={[styles.correctionLoadingText, { fontSize: 11, marginTop: 4 }]}>
+                                  {t('technique.generatingVideoHint')}
+                                </Text>
+                              </View>
+                            )}
+
+                            {SHOW_COMFY_CORRECTIONS &&
+                              !correctionVideo?.video &&
+                              !correctionsLoadingVideo &&
+                              !correctionsVideoError && (
+                                <TouchableOpacity
+                                  style={[styles.correctionGenerateButton, { marginTop: 8 }]}
+                                  onPress={() => void generateComfyCorrectionVideo()}
+                                  activeOpacity={0.9}
+                                >
+                                  <LinearGradient
+                                    colors={['#0022FF', '#00BBFF']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={styles.correctionGenerateButtonInner}
+                                  >
+                                    <FeatherIcon name="video" size={16} color="#fff" />
+                                    <Text style={styles.correctionGenerateButtonText}>
+                                      {t('technique.generateVideo')}
+                                    </Text>
+                                  </LinearGradient>
+                                </TouchableOpacity>
+                              )}
+
+                            {SHOW_COMFY_CORRECTIONS && correctionVideo?.video ? (
+                              <View style={{ marginTop: 12 }}>
+                                <Video
+                                  source={{ uri: toMediaUri(correctionVideo.video) }}
+                                  posterSource={
+                                    correctionVideo.startImage
+                                      ? toImageSource(correctionVideo.startImage)
+                                      : undefined
+                                  }
+                                  usePoster={Boolean(correctionVideo.startImage)}
+                                  style={styles.correctionWanVideo}
+                                  resizeMode={ResizeMode.CONTAIN}
+                                  useNativeControls
+                                  isLooping
+                                />
+                                {correctionVideo.poseVideo ? (
+                                  <View style={{ marginTop: 8 }}>
+                                    <Text style={[styles.correctionTabLabel, { marginBottom: 6 }]}>
+                                      {t('technique.poseControlPreview')}
+                                    </Text>
+                                    <Video
+                                      source={{ uri: toMediaUri(correctionVideo.poseVideo) }}
+                                      style={styles.correctionPoseVideo}
+                                      resizeMode={ResizeMode.CONTAIN}
+                                      useNativeControls
+                                      isLooping
+                                    />
+                                  </View>
+                                ) : null}
+                              </View>
+                            ) : null}
 
                             {correctionImages.length > 0 && (
                               <View style={styles.correctionCarousel}>
@@ -5203,6 +5438,20 @@ function getStyles(theme: any) {
       borderRadius: 14,
       overflow: 'hidden',
       marginTop: 4,
+    },
+    correctionWanVideo: {
+      width: '100%',
+      aspectRatio: 16 / 9,
+      borderRadius: 14,
+      backgroundColor: '#000',
+      overflow: 'hidden',
+    },
+    correctionPoseVideo: {
+      width: 160,
+      aspectRatio: 1,
+      borderRadius: 10,
+      backgroundColor: '#000',
+      overflow: 'hidden',
     },
     correctionGenerateButtonInner: {
       flexDirection: 'row',

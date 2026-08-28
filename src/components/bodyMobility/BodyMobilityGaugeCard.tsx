@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 import { View, Text, Image, StyleSheet, type ImageSourcePropType } from 'react-native'
 import Svg, { Circle, G, Path } from 'react-native-svg'
+import { useTranslation } from 'react-i18next'
 import {
   GAUGE_SEGMENT_COLORS_BY_JOINT,
   STATUS_COLORS,
@@ -8,11 +9,12 @@ import {
   STATUS_PILL_TEXT,
   gaugeBinFromDeg,
   gaugeDisplayDeg,
-  mobilityBlurb,
+  mobilityBlurbKey,
   statusFromWedgeColor,
   type MobilityJointKey,
   type MobilityJointReading,
   type BodySide,
+  type MobilityStatus,
 } from '../../lib/bodyMobility'
 
 const GAUGE_SIZE = 118
@@ -42,13 +44,6 @@ const GAUGE_WEDGE_PATHS: readonly string[] = [
   'M72.0925 19.6512C73.0253 19.0597 74.2658 19.3342 74.81 20.2955C78.0904 26.0907 79.8723 32.6142 79.9934 39.2723C80.0135 40.3767 79.0848 41.2437 77.9808 41.2086V41.2086C76.8768 41.1735 76.0161 40.2495 75.9899 39.1452C75.8508 33.2889 74.2844 27.554 71.427 22.4402C70.8882 21.476 71.1596 20.2427 72.0925 19.6512V19.6512Z',
 ]
 
-const JOINT_TITLE: Record<MobilityJointKey, string> = {
-  head: 'Head',
-  shoulder: 'Shoulder',
-  wrist: 'Wrist',
-  knee: 'Knee',
-}
-
 /** Map gauge 0–180° (left→right over top) onto the SVG artboard. */
 function markerOnSvg(gaugeDeg: number) {
   const clamped = Math.max(0, Math.min(180, gaugeDeg))
@@ -60,19 +55,27 @@ function markerOnSvg(gaugeDeg: number) {
   }
 }
 
+function statusLabelKey(status: MobilityStatus): string {
+  if (status === 'good') return 'technique.bodyMobility.statusGood'
+  if (status === 'okay') return 'technique.bodyMobility.statusOkay'
+  return 'technique.bodyMobility.statusBad'
+}
+
 export type BodyMobilityGaugeCardProps = {
   joint: MobilityJointKey
   reading: MobilityJointReading
-  side: BodySide
+  /** Body side for L/R chip; omit for shared midline joints (head). */
+  side?: BodySide | null
   emblem: ImageSourcePropType
 }
 
 export function BodyMobilityGaugeCard({
   joint,
   reading,
-  side,
+  side = null,
   emblem,
 }: BodyMobilityGaugeCardProps) {
+  const { t } = useTranslation()
   const styles = useMemo(() => getStyles(), [])
   const gaugeDeg =
     reading.gaugeDeg ?? gaugeDisplayDeg(joint, reading.you, reading.ideal)
@@ -81,17 +84,22 @@ export function BodyMobilityGaugeCard({
   const segmentColors = GAUGE_SEGMENT_COLORS_BY_JOINT[joint]
   const wedgeColor =
     activeBin != null ? segmentColors[activeBin] : 'rgba(255,255,255,0.35)'
-  const blurb = mobilityBlurb(joint, { ...reading, status })
-  const sideChip = side === 'RIGHT' ? 'R' : 'L'
+  const blurbKey = mobilityBlurbKey(joint, { ...reading, status })
+  const blurb = t(`technique.bodyMobility.${blurbKey}`)
+  const sideChip = side === 'RIGHT' ? 'R' : side === 'LEFT' ? 'L' : null
 
   const marker = gaugeDeg != null ? markerOnSvg(gaugeDeg) : null
 
   return (
     <View style={styles.card}>
       <View style={styles.leftCol}>
-        <Text allowFontScaling={false} style={styles.sideChipText}>
-          {sideChip}
-        </Text>
+        {sideChip ? (
+          <Text allowFontScaling={false} style={styles.sideChipText}>
+            {sideChip}
+          </Text>
+        ) : (
+          <View style={styles.sideChipSpacer} />
+        )}
         <View style={styles.gaugeWrap}>
           <Svg width={GAUGE_SIZE} height={GAUGE_SIZE} viewBox={`0 0 ${SVG_VB} ${SVG_VB}`}>
             <G>
@@ -125,7 +133,7 @@ export function BodyMobilityGaugeCard({
               allowFontScaling={false}
               style={[styles.statusPillText, { color: STATUS_PILL_TEXT[status] }]}
             >
-              {status.toUpperCase()}
+              {t(statusLabelKey(status))}
             </Text>
           </View>
         ) : (
@@ -142,7 +150,7 @@ export function BodyMobilityGaugeCard({
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: wedgeColor }]} />
             <Text allowFontScaling={false} style={styles.legendText}>
-              You{' '}
+              {t('technique.bodyMobility.you')}{' '}
               <Text allowFontScaling={false} style={styles.legendValue}>
                 {reading.you != null ? `${reading.you}°` : '-'}
               </Text>
@@ -151,7 +159,7 @@ export function BodyMobilityGaugeCard({
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: STATUS_COLORS.good }]} />
             <Text allowFontScaling={false} style={styles.legendText}>
-              Ideal{' '}
+              {t('technique.bodyMobility.ideal')}{' '}
               <Text allowFontScaling={false} style={styles.legendValue}>
                 {reading.ideal != null ? `${reading.ideal}°` : '-'}
               </Text>
@@ -159,7 +167,7 @@ export function BodyMobilityGaugeCard({
           </View>
         </View>
         <Text allowFontScaling={false} style={styles.title}>
-          {JOINT_TITLE[joint]}
+          {t(`technique.bodyMobility.${joint}`)}
         </Text>
         <Text allowFontScaling={false} style={styles.blurb} numberOfLines={4}>
           {blurb}
@@ -194,6 +202,9 @@ function getStyles() {
       color: 'rgba(0, 184, 255, 0.55)',
       fontSize: 13,
       fontWeight: '600',
+    },
+    sideChipSpacer: {
+      height: 0,
     },
     gaugeWrap: {
       width: GAUGE_SIZE,
