@@ -62,9 +62,7 @@ import {
 import { hasProfileImage, profileImageToAbsoluteUri } from '../lib/defaultProfilePicture'
 import { VideoFrameCarousel, normalizeThumbnailImageUri } from '../components/VideoFrameCarousel'
 import { TrimClipPreview, type TrimClipPreviewHandle } from '../components/TrimClipPreview'
-import { ProLibraryGradientFrame } from '../components/ProLibraryGradientFrame'
 import { ProLibraryGradientProgressBar } from '../components'
-import { proLibraryChrome } from '../theme/proLibraryChrome'
 import { TechniqueAnalysisVideoPanel } from '../components/TechniqueAnalysisVideoPanel'
 import { PaddlePongGame } from '../components/PaddlePongGame'
 import { AnalyzingDashSpinner } from '../components/AnalyzingDashSpinner'
@@ -3186,6 +3184,10 @@ export function Technique() {
                         </View>
                       ) : null}
 
+                      {localeAnalysis ? (
+                        <View style={styles.step3PosesDivider} />
+                      ) : null}
+
                       {localeAnalysis && (
                         <View style={styles.correctionSection}>
                           <View style={styles.correctionSectionTitleRow}>
@@ -3649,34 +3651,18 @@ export function Technique() {
                               )}
 
                             {SHOW_COMFY_CORRECTIONS && correctionVideo?.video ? (
-                              <View style={{ marginTop: 12 }}>
-                                <Video
-                                  source={{ uri: toMediaUri(correctionVideo.video) }}
-                                  posterSource={
-                                    correctionVideo.startImage
-                                      ? toImageSource(correctionVideo.startImage)
-                                      : undefined
-                                  }
-                                  usePoster={Boolean(correctionVideo.startImage)}
-                                  style={styles.correctionWanVideo}
-                                  resizeMode={ResizeMode.CONTAIN}
-                                  useNativeControls
+                              <View style={styles.correctionVideoBlock}>
+                                <TechniqueAnalysisVideoPanel
+                                  videoUri={toMediaUri(correctionVideo.video)}
+                                  videoKey={`correction-${analysisId ?? 'video'}`}
+                                  width={step3VideoWidth}
+                                  poseFrames={[]}
+                                  totalVidFrames={0}
                                   isLooping
+                                  showDetailedPoseOverlay
+                                  detailedChrome="none"
+                                  showScrubDots={false}
                                 />
-                                {correctionVideo.poseVideo ? (
-                                  <View style={{ marginTop: 8 }}>
-                                    <Text style={[styles.correctionTabLabel, { marginBottom: 6 }]}>
-                                      {t('technique.poseControlPreview')}
-                                    </Text>
-                                    <Video
-                                      source={{ uri: toMediaUri(correctionVideo.poseVideo) }}
-                                      style={styles.correctionPoseVideo}
-                                      resizeMode={ResizeMode.CONTAIN}
-                                      useNativeControls
-                                      isLooping
-                                    />
-                                  </View>
-                                ) : null}
                               </View>
                             ) : null}
 
@@ -5459,19 +5445,8 @@ function getStyles(theme: any) {
       overflow: 'hidden',
       marginTop: 4,
     },
-    correctionWanVideo: {
-      width: '100%',
-      aspectRatio: 16 / 9,
-      borderRadius: 14,
-      backgroundColor: '#000',
-      overflow: 'hidden',
-    },
-    correctionPoseVideo: {
-      width: 160,
-      aspectRatio: 1,
-      borderRadius: 10,
-      backgroundColor: '#000',
-      overflow: 'hidden',
+    correctionVideoBlock: {
+      marginTop: 12,
     },
     correctionGenerateButtonInner: {
       flexDirection: 'row',

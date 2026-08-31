@@ -217,6 +217,14 @@ export type TechniqueAnalysisVideoPanelProps = {
    * cyan skeleton, joint dots + included-degree arcs.
    */
   showDetailedPoseOverlay?: boolean
+  /**
+   * When `showDetailedPoseOverlay`: `full` = Your Pose + Pose Corrected + overlay legend;
+   * `poseCorrected` = Pose Corrected pill only (e.g. generated correction clip);
+   * `none` = no pills above the frame.
+   */
+  detailedChrome?: 'full' | 'poseCorrected' | 'none'
+  /** Override scrub-dot visibility. Default: shown unless stacked without `showScrubDotsInStacked`. */
+  showScrubDots?: boolean
 }
 
 /**
@@ -238,6 +246,8 @@ export function TechniqueAnalysisVideoPanel({
   showScrubDotsInStacked = false,
   skeletonColorMode = 'uniform',
   showDetailedPoseOverlay = false,
+  detailedChrome = 'full',
+  showScrubDots,
 }: TechniqueAnalysisVideoPanelProps) {
   const { t } = useTranslation()
   const { theme } = useContext(ThemeContext)
@@ -568,6 +578,16 @@ export function TechniqueAnalysisVideoPanel({
           color: 'rgba(200, 215, 230, 0.72)',
           flexShrink: 0,
         },
+        poseCorrectedOnlyPill: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 10,
+          paddingVertical: 6,
+          borderRadius: 999,
+          backgroundColor: '#041028',
+          borderWidth: 1.5,
+          borderColor: 'rgba(0, 255, 166, 0.55)',
+        },
         /** Single inner pill holding all three legend items. */
         nestedLegendPill: {
           flexDirection: 'row',
@@ -723,8 +743,12 @@ export function TechniqueAnalysisVideoPanel({
 
   const showLegendUi =
     showLegend && !showDetailedPoseOverlay && (!stacked || showLegendInStacked)
-  const showScrubDotsUi = !stacked || showScrubDotsInStacked
+  const showScrubDotsUi =
+    typeof showScrubDots === 'boolean'
+      ? showScrubDots
+      : !stacked || showScrubDotsInStacked
   const useUniformSkeleton = skeletonColorMode === 'uniform' || showDetailedPoseOverlay
+  const chromeMode = showDetailedPoseOverlay ? detailedChrome : 'none'
 
   const poseOverlaySvg = landmarksForPoseOverlay ? (
     <PoseSkeletonOverlay
@@ -771,41 +795,50 @@ export function TechniqueAnalysisVideoPanel({
     </>
   )
 
-  const chromeAboveVideo = showDetailedPoseOverlay ? (
-    <View style={styles.chromeRow} pointerEvents="box-none">
-      <View style={styles.yourPosePill}>
-        <View style={styles.yourPoseDot} />
-        <Text allowFontScaling={false} style={styles.yourPoseText}>
-          {t('technique.yourPosePill')}
-        </Text>
-      </View>
-      <View style={styles.poseCorrectedOuter} accessibilityState={{ disabled: true }}>
-        <Text allowFontScaling={false} style={styles.poseCorrectedLabel}>
-          {t('technique.poseCorrectedPill')}
-        </Text>
-        <View style={styles.nestedLegendPill}>
-          <View style={styles.nestedLegendItem}>
-            <View style={[styles.overlayLegendDot, { backgroundColor: LEGEND_POSE }]} />
-            <Text allowFontScaling={false} style={styles.nestedLegendText}>
-              {t('technique.overlayLegendPose')}
-            </Text>
-          </View>
-          <View style={styles.nestedLegendItem}>
-            <View style={[styles.overlayLegendDot, { backgroundColor: LEGEND_RACKET }]} />
-            <Text allowFontScaling={false} style={styles.nestedLegendText}>
-              {t('technique.overlayLegendRacket')}
-            </Text>
-          </View>
-          <View style={styles.nestedLegendItem}>
-            <View style={[styles.overlayLegendDot, { backgroundColor: LEGEND_BALL }]} />
-            <Text allowFontScaling={false} style={styles.nestedLegendText}>
-              {t('technique.overlayLegendBall')}
-            </Text>
+  const chromeAboveVideo =
+    chromeMode === 'full' ? (
+      <View style={styles.chromeRow} pointerEvents="box-none">
+        <View style={styles.yourPosePill}>
+          <View style={styles.yourPoseDot} />
+          <Text allowFontScaling={false} style={styles.yourPoseText}>
+            {t('technique.yourPosePill')}
+          </Text>
+        </View>
+        <View style={styles.poseCorrectedOuter} accessibilityState={{ disabled: true }}>
+          <Text allowFontScaling={false} style={styles.poseCorrectedLabel}>
+            {t('technique.poseCorrectedPill')}
+          </Text>
+          <View style={styles.nestedLegendPill}>
+            <View style={styles.nestedLegendItem}>
+              <View style={[styles.overlayLegendDot, { backgroundColor: LEGEND_POSE }]} />
+              <Text allowFontScaling={false} style={styles.nestedLegendText}>
+                {t('technique.overlayLegendPose')}
+              </Text>
+            </View>
+            <View style={styles.nestedLegendItem}>
+              <View style={[styles.overlayLegendDot, { backgroundColor: LEGEND_RACKET }]} />
+              <Text allowFontScaling={false} style={styles.nestedLegendText}>
+                {t('technique.overlayLegendRacket')}
+              </Text>
+            </View>
+            <View style={styles.nestedLegendItem}>
+              <View style={[styles.overlayLegendDot, { backgroundColor: LEGEND_BALL }]} />
+              <Text allowFontScaling={false} style={styles.nestedLegendText}>
+                {t('technique.overlayLegendBall')}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
-    </View>
-  ) : null
+    ) : chromeMode === 'poseCorrected' ? (
+      <View style={[styles.chromeRow, { justifyContent: 'flex-end' }]} pointerEvents="box-none">
+        <View style={styles.poseCorrectedOnlyPill} accessibilityState={{ disabled: true }}>
+          <Text allowFontScaling={false} style={styles.poseCorrectedLabel}>
+            {t('technique.poseCorrectedPill')}
+          </Text>
+        </View>
+      </View>
+    ) : null
 
   const videoPlayer = (
     <View style={[styles.videoBox, { width, height: videoH }]}>
