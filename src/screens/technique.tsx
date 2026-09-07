@@ -64,6 +64,7 @@ import { VideoFrameCarousel, normalizeThumbnailImageUri } from '../components/Vi
 import { TrimClipPreview, type TrimClipPreviewHandle } from '../components/TrimClipPreview'
 import { ProLibraryGradientProgressBar } from '../components'
 import { TechniqueAnalysisVideoPanel } from '../components/TechniqueAnalysisVideoPanel'
+import { CorrectionVideoCompare } from '../components/CorrectionVideoCompare'
 import { PaddlePongGame } from '../components/PaddlePongGame'
 import { AnalyzingDashSpinner } from '../components/AnalyzingDashSpinner'
 import { CorrectionRegenerateModal } from '../components/CorrectionRegenerateModal'
@@ -3652,17 +3653,26 @@ export function Technique() {
 
                             {SHOW_COMFY_CORRECTIONS && correctionVideo?.video ? (
                               <View style={styles.correctionVideoBlock}>
-                                <TechniqueAnalysisVideoPanel
-                                  videoUri={toMediaUri(correctionVideo.video)}
-                                  videoKey={`correction-${analysisId ?? 'video'}`}
-                                  width={step3VideoWidth}
-                                  poseFrames={[]}
-                                  totalVidFrames={0}
-                                  isLooping
-                                  showDetailedPoseOverlay
-                                  detailedChrome="none"
-                                  showScrubDots={false}
-                                />
+                                {uploadedVideoUrl ? (
+                                  <CorrectionVideoCompare
+                                    originalUri={uploadedVideoUrl}
+                                    correctedUri={toMediaUri(correctionVideo.video)}
+                                    videoKey={`correction-${analysisId ?? 'video'}`}
+                                    width={step3VideoWidth}
+                                  />
+                                ) : (
+                                  <TechniqueAnalysisVideoPanel
+                                    videoUri={toMediaUri(correctionVideo.video)}
+                                    videoKey={`correction-${analysisId ?? 'video'}`}
+                                    width={step3VideoWidth}
+                                    poseFrames={[]}
+                                    totalVidFrames={0}
+                                    isLooping
+                                    showDetailedPoseOverlay
+                                    detailedChrome="none"
+                                    showScrubDots={false}
+                                  />
+                                )}
                               </View>
                             ) : null}
 
