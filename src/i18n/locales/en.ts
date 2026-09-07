@@ -201,6 +201,8 @@ export const en = {
     startOver: "Start Over",
     current: "Current",
     corrected: "Corrected",
+    lowResolutionWarning:
+      "This clip is {{shortSide}}p, below the {{minimum}}p we recommend. The AI correction has little detail to work from, so the generated video will look soft.",
     sideBySide: "Side by side",
     dragCompare: "Drag to compare",
     techniqueRating: "Technique Rating",

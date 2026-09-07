@@ -165,6 +165,23 @@ const SHOW_COMFY_CORRECTIONS =
   String(process.env.EXPO_PUBLIC_SHOW_COMFY_CORRECTIONS ?? '')
     .trim()
     .toLowerCase() === 'true'
+
+/**
+ * Upload resolution caps everything the analysis and correction pipelines can do, so ask for
+ * the untranscoded original. `Current` stops Photos handing back a re-encoded, downscaled
+ * copy of an iCloud asset (iOS only; ignored elsewhere).
+ */
+const VIDEO_PICKER_OPTIONS = {
+  mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+  quality: 1,
+  videoQuality: ImagePicker.UIImagePickerControllerQualityType.High,
+} as const
+const VIDEO_LIBRARY_PICKER_OPTIONS = {
+  ...VIDEO_PICKER_OPTIONS,
+  allowsEditing: false,
+  preferredAssetRepresentationMode:
+    ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
+} as const
 /**
  * Step 3 still-image generate CTAs (Gemini / fal / Comfy corrected poses).
  * Handlers and routes stay; this round is Generate Video only in the UI.
@@ -303,6 +320,9 @@ type CorrectionVideoRow = {
   startImage: string
   video: string
   poseVideo?: string
+  /** Span of the upload the correction was generated from, for aligning the compare sides. */
+  windowStartMs?: number | null
+  windowEndMs?: number | null
 }
 
 function isUsableCorrectionImageUri(uri: string): boolean {
@@ -486,6 +506,11 @@ export function Technique() {
   const [correctionsError, setCorrectionsError] = useState<string | null>(null)
   const [correctionsFalError, setCorrectionsFalError] = useState<string | null>(null)
   const [correctionsComfyError, setCorrectionsComfyError] = useState<string | null>(null)
+  /** Set when the server measured the upload as too small for a good AI correction. */
+  const [lowResolutionUpload, setLowResolutionUpload] = useState<{
+    shortSide: number
+    minimum: number
+  } | null>(null)
   const [correctionVideo, setCorrectionVideo] = useState<CorrectionVideoRow | null>(null)
   const [correctionsLoadingVideo, setCorrectionsLoadingVideo] = useState(false)
   const [correctionsVideoError, setCorrectionsVideoError] = useState<string | null>(null)
@@ -1125,6 +1150,8 @@ export function Technique() {
             startImage?: string | null
             video?: string | null
             poseVideo?: string | null
+            windowStartMs?: number | null
+            windowEndMs?: number | null
           }>(`/technique/analysis/${analysisId}/correction-videos`, {
             method: 'GET',
             headers: { Accept: 'application/json' },
@@ -1135,6 +1162,8 @@ export function Technique() {
           startImage?: string | null
           video?: string | null
           poseVideo?: string | null
+          windowStartMs?: number | null
+          windowEndMs?: number | null
         } | null
         if (cancelled || !body || typeof body.video !== 'string' || !body.video.trim()) return
         setCorrectionVideo({
@@ -1145,6 +1174,8 @@ export function Technique() {
             typeof body.poseVideo === 'string' && body.poseVideo.trim()
               ? body.poseVideo.trim()
               : undefined,
+          windowStartMs: typeof body.windowStartMs === 'number' ? body.windowStartMs : null,
+          windowEndMs: typeof body.windowEndMs === 'number' ? body.windowEndMs : null,
         })
       } catch {
         /* cached video optional */
@@ -1418,15 +1449,8 @@ export function Technique() {
     }
 
     const result = useLibrary
-      ? await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-          allowsEditing: false,
-          quality: 1,
-        })
-      : await ImagePicker.launchCameraAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-          quality: 1,
-        })
+      ? await ImagePicker.launchImageLibraryAsync(VIDEO_LIBRARY_PICKER_OPTIONS)
+      : await ImagePicker.launchCameraAsync(VIDEO_PICKER_OPTIONS)
     if (result.canceled || !result.assets?.[0]) return
     await uploadVideo(
       result.assets[0].uri,
@@ -1448,11 +1472,7 @@ export function Technique() {
   async function pickFromGallery() {
     const mediaPerm = await ImagePicker.requestMediaLibraryPermissionsAsync()
     if (mediaPerm.status !== 'granted') return
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      allowsEditing: false,
-      quality: 1,
-    })
+    const result = await ImagePicker.launchImageLibraryAsync(VIDEO_LIBRARY_PICKER_OPTIONS)
     if (result.canceled || !result.assets?.[0]) return
     await uploadVideo(
       result.assets[0].uri,
@@ -1517,7 +1537,17 @@ export function Technique() {
         id: data.id,
         url: data.url ? `${data.url.slice(0, 50)}...` : '',
         sendVideoToCoach,
+        dimensions: data.width && data.height ? `${data.width}x${data.height}` : 'unknown',
+        lowResolution: data.lowResolution === true,
       })
+
+      const shortSide =
+        data.width && data.height ? Math.min(data.width, data.height) : null
+      setLowResolutionUpload(
+        data.lowResolution && shortSide
+          ? { shortSide, minimum: data.minRecommendedShortSide ?? 720 }
+          : null
+      )
 
       if (data.localUri) {
         setLocalVideoUri(data.localUri)
@@ -2038,6 +2068,8 @@ export function Technique() {
         startImage?: string
         video?: string
         poseVideo?: string
+        windowStartMs?: number | null
+        windowEndMs?: number | null
         error?: unknown
       }
 
@@ -2060,6 +2092,8 @@ export function Technique() {
             typeof body.poseVideo === 'string' && body.poseVideo.trim()
               ? body.poseVideo.trim()
               : undefined,
+          windowStartMs: typeof body.windowStartMs === 'number' ? body.windowStartMs : null,
+          windowEndMs: typeof body.windowEndMs === 'number' ? body.windowEndMs : null,
         })
       } else {
         const apiError =
@@ -3186,7 +3220,7 @@ export function Technique() {
                       ) : null}
 
                       {localeAnalysis ? (
-                        <View style={styles.step3PosesDivider} />
+                        <View style={styles.correctionSectionDivider} />
                       ) : null}
 
                       {localeAnalysis && (
@@ -3267,6 +3301,18 @@ export function Technique() {
                             ) : null}
                           </View>
                           <View style={styles.correctionSectionBody}>
+                            {lowResolutionUpload ? (
+                              <View style={styles.lowResolutionNotice}>
+                                <FeatherIcon name="alert-triangle" size={14} color="#FFB020" />
+                                <Text style={styles.lowResolutionNoticeText}>
+                                  {t('technique.lowResolutionWarning', {
+                                    shortSide: lowResolutionUpload.shortSide,
+                                    minimum: lowResolutionUpload.minimum,
+                                  })}
+                                </Text>
+                              </View>
+                            ) : null}
+
                             {SHOW_GENERATE_POSES_TEST ? (
                               <TouchableOpacity
                                 style={[styles.correctionGenerateButtonSecondary, { marginBottom: 12 }]}
@@ -3659,6 +3705,8 @@ export function Technique() {
                                     correctedUri={toMediaUri(correctionVideo.video)}
                                     videoKey={`correction-${analysisId ?? 'video'}`}
                                     width={step3VideoWidth}
+                                    windowStartMs={correctionVideo.windowStartMs}
+                                    windowEndMs={correctionVideo.windowEndMs}
                                   />
                                 ) : (
                                   <TechniqueAnalysisVideoPanel
@@ -4742,6 +4790,18 @@ function getStyles(theme: any) {
       borderRadius: 1,
       marginBottom: 14,
     },
+    /**
+     * Same rule, but this one follows the recommendations list, which ends flush against it.
+     * The section below has no top margin of its own, so the breathing room goes here.
+     */
+    correctionSectionDivider: {
+      width: '100%',
+      height: 2,
+      backgroundColor: '#0022FF',
+      borderRadius: 1,
+      marginTop: 22,
+      marginBottom: 14,
+    },
     step3PosesHeader: {
       width: '100%',
       marginBottom: 10,
@@ -5614,6 +5674,26 @@ function getStyles(theme: any) {
     },
     correctionSectionBody: {
       width: '100%',
+    },
+    lowResolutionNotice: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+      width: '100%',
+      marginBottom: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 176, 32, 0.35)',
+      backgroundColor: 'rgba(255, 176, 32, 0.10)',
+    },
+    lowResolutionNoticeText: {
+      flex: 1,
+      fontFamily: theme.regularFont,
+      fontSize: 12,
+      lineHeight: 17,
+      color: theme.mutedForegroundColor,
     },
     correctionCarousel: {
       marginTop: 0,

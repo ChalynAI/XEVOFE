@@ -1,6 +1,12 @@
 import React, { useCallback, useContext, useMemo, useRef, useState } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native'
 import { Video, ResizeMode, type AVPlaybackStatus, type AVPlaybackStatusSuccess } from 'expo-av'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import FeatherIcon from '@expo/vector-icons/Feather'
 import { useTranslation } from 'react-i18next'
@@ -11,8 +17,20 @@ import { proLibraryChrome } from '../theme/proLibraryChrome'
 const SCRUB_TRACK_PLAYED = '#00B8FF'
 const SCRUB_TRACK_REST = '#808080'
 
-/** Re-seek the original only past this drift, so status updates do not fight playback. */
+/** Re-seek the follower only past this drift, so status updates do not fight playback. */
 const SYNC_TOLERANCE_MS = 140
+/** Floor between seeks while dragging; expo-av drops requests if they arrive faster. */
+const SEEK_THROTTLE_MS = 70
+/** Half the split-handle column, used to centre it on the split. */
+const HANDLE_HALF = 28
+
+/**
+ * Tallest the video box may get, as a multiple of its width, and as a share of the screen.
+ * A portrait phone clip is about 1.2x taller than wide, which filled most of the screen and
+ * magnified every compression artefact. Capping and cropping keeps the width full-bleed.
+ */
+const MAX_HEIGHT_RATIO = 0.8
+const MAX_SCREEN_SHARE = 0.4
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
 
@@ -25,12 +43,23 @@ export type CorrectionVideoCompareProps = {
   videoKey: string
   width: number
   initialSplit?: number
+  /**
+   * Span of the original clip the corrected clip was generated from. The correction covers a
+   * window centred on contact, so without these the two sides show different moments.
+   */
+  windowStartMs?: number | null
+  windowEndMs?: number | null
 }
 
 /**
  * Before/after compare for the correction clip: two synced players behind a draggable split,
  * inside the same accent gradient board as the analysis video. The corrected clip is the
- * playback master; the original is nudged back into sync whenever it drifts.
+ * playback master; the original is offset into the correction's source window and nudged back
+ * whenever it drifts.
+ *
+ * Playback position lives in shared values rather than state, so neither the 4x/second status
+ * ticks nor a scrub gesture re-renders the players. Re-rendering them was what made pause jump
+ * back to the start.
  */
 export function CorrectionVideoCompare({
   originalUri,
@@ -38,56 +67,104 @@ export function CorrectionVideoCompare({
   videoKey,
   width,
   initialSplit = 0.5,
+  windowStartMs,
+  windowEndMs,
 }: CorrectionVideoCompareProps) {
   const { t } = useTranslation()
   const { theme } = useContext(ThemeContext)
+  const { height: screenH } = useWindowDimensions()
   const correctedRef = useRef<Video>(null)
   const originalRef = useRef<Video>(null)
-  const [split, setSplit] = useState(clamp01(initialSplit))
-  const [playback, setPlayback] = useState<AVPlaybackStatusSuccess | null>(null)
-  const [aspect, setAspect] = useState<number | null>(null)
 
-  const videoH = useMemo(
-    () => Math.max(1, Math.ceil(width * (aspect ?? 9 / 16))),
-    [width, aspect]
+  const [aspect, setAspect] = useState<number | null>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+
+  const split = useSharedValue(clamp01(initialSplit))
+  const splitStart = useSharedValue(clamp01(initialSplit))
+  const progress = useSharedValue(0)
+  const isScrubbing = useSharedValue(false)
+
+  const durationRef = useRef(0)
+  const trackWidthRef = useRef(0)
+  const lastSeekAtRef = useRef(0)
+
+  // A new object literal here on every render replaces the native player's source, which is
+  // what previously restarted the clip whenever a status tick re-rendered the component.
+  const correctedSource = useMemo(() => ({ uri: correctedUri }), [correctedUri])
+  const originalSource = useMemo(() => ({ uri: originalUri }), [originalUri])
+
+  const videoH = useMemo(() => {
+    const natural = aspect != null ? width * aspect : width * (9 / 16)
+    const cap = Math.min(width * MAX_HEIGHT_RATIO, screenH * MAX_SCREEN_SHARE)
+    return Math.max(1, Math.ceil(Math.min(natural, cap)))
+  }, [width, aspect, screenH])
+
+  /** Where the original should sit for a given corrected-clip position. */
+  const followerTargetMs = useCallback(
+    (masterMs: number) => {
+      const start = typeof windowStartMs === 'number' && windowStartMs >= 0 ? windowStartMs : 0
+      const end = typeof windowEndMs === 'number' && windowEndMs > start ? windowEndMs : null
+      const target = start + masterMs
+      return end != null ? Math.min(target, end) : target
+    },
+    [windowStartMs, windowEndMs]
   )
 
-  const handleStatus = useCallback((s: AVPlaybackStatus) => {
-    if (!s.isLoaded) return
-    setPlayback(s as AVPlaybackStatusSuccess)
-    const master = s as AVPlaybackStatusSuccess
-    const follower = originalRef.current
-    if (!follower) return
-    void follower
-      .getStatusAsync()
-      .then((f) => {
-        if (!f.isLoaded) return
-        const drift = Math.abs((f.positionMillis ?? 0) - (master.positionMillis ?? 0))
-        if (drift > SYNC_TOLERANCE_MS) {
-          void follower.setPositionAsync(master.positionMillis ?? 0)
-        }
-        if (master.isPlaying && !f.isPlaying) void follower.playAsync()
-        if (!master.isPlaying && f.isPlaying) void follower.pauseAsync()
-      })
-      .catch(() => {})
-  }, [])
+  const handleStatus = useCallback(
+    (s: AVPlaybackStatus) => {
+      if (!s.isLoaded) return
+      const master = s as AVPlaybackStatusSuccess
+      if (master.durationMillis && master.durationMillis !== durationRef.current) {
+        durationRef.current = master.durationMillis
+      }
+      setIsPlaying((prev) => (prev === master.isPlaying ? prev : master.isPlaying))
 
-  const isPlaying = playback?.isLoaded === true && playback.isPlaying === true
-  const durationMs =
-    playback?.isLoaded && playback.durationMillis ? playback.durationMillis : 1
-  const positionMs =
-    playback?.isLoaded && playback.positionMillis != null ? playback.positionMillis : 0
-  const progress = clamp01(positionMs / durationMs)
+      if (!isScrubbing.value && durationRef.current > 0) {
+        progress.value = clamp01((master.positionMillis ?? 0) / durationRef.current)
+      }
+
+      const follower = originalRef.current
+      if (!follower) return
+      void follower
+        .getStatusAsync()
+        .then((f) => {
+          if (!f.isLoaded) return
+          const want = followerTargetMs(master.positionMillis ?? 0)
+          if (Math.abs((f.positionMillis ?? 0) - want) > SYNC_TOLERANCE_MS) {
+            void follower.setPositionAsync(want)
+          }
+          if (master.isPlaying && !f.isPlaying) void follower.playAsync()
+          if (!master.isPlaying && f.isPlaying) void follower.pauseAsync()
+        })
+        .catch(() => {})
+    },
+    [followerTargetMs, isScrubbing, progress]
+  )
+
+  const seekToFraction = useCallback(
+    (fraction: number, force: boolean) => {
+      const duration = durationRef.current
+      if (duration <= 0) return
+      const now = Date.now()
+      if (!force && now - lastSeekAtRef.current < SEEK_THROTTLE_MS) return
+      lastSeekAtRef.current = now
+
+      const masterMs = clamp01(fraction) * duration
+      void correctedRef.current?.setPositionAsync(masterMs).catch(() => {})
+      void originalRef.current?.setPositionAsync(followerTargetMs(masterMs)).catch(() => {})
+    },
+    [followerTargetMs]
+  )
 
   const togglePlay = useCallback(async () => {
     const master = correctedRef.current
     const follower = originalRef.current
     if (!master) return
     if (isPlaying) {
-      await master.pauseAsync()
+      await master.pauseAsync().catch(() => {})
       await follower?.pauseAsync().catch(() => {})
     } else {
-      await master.playAsync()
+      await master.playAsync().catch(() => {})
       await follower?.playAsync().catch(() => {})
     }
   }, [isPlaying])
@@ -95,10 +172,58 @@ export function CorrectionVideoCompare({
   const onNaturalSize = useCallback(
     (ns: { width: number; height: number } | null | undefined) => {
       if (!ns || ns.width <= 0 || ns.height <= 0) return
-      setAspect(ns.height / ns.width)
+      const next = ns.height / ns.width
+      setAspect((prev) => (prev != null && Math.abs(prev - next) < 0.001 ? prev : next))
     },
     []
   )
+
+  // minDistance(0) so a plain tap on the track seeks, rather than needing a drag first.
+  const scrubGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(0)
+        .onBegin((e) => {
+          isScrubbing.value = true
+          const w = trackWidthRef.current
+          if (w <= 0) return
+          progress.value = clamp01(e.x / w)
+          runOnJS(seekToFraction)(progress.value, true)
+        })
+        .onUpdate((e) => {
+          const w = trackWidthRef.current
+          if (w <= 0) return
+          progress.value = clamp01(e.x / w)
+          runOnJS(seekToFraction)(progress.value, false)
+        })
+        .onFinalize(() => {
+          runOnJS(seekToFraction)(progress.value, true)
+          isScrubbing.value = false
+        }),
+    [isScrubbing, progress, seekToFraction]
+  )
+
+  // Anchored to the handle rather than the whole card: a card-wide raw responder competed
+  // with the parent ScrollView, which is what made the split feel jumpy.
+  const splitGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(0)
+        .onBegin(() => {
+          splitStart.value = split.value
+        })
+        .onUpdate((e) => {
+          split.value = clamp01(splitStart.value + e.translationX / width)
+        }),
+    [split, splitStart, width]
+  )
+
+  const beforeClipStyle = useAnimatedStyle(() => ({ width: split.value * width }))
+  const handleColumnStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: split.value * width - HANDLE_HALF }],
+  }))
+  const trackFillStyle = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }))
+  const thumbStyle = useAnimatedStyle(() => ({ left: `${progress.value * 100}%` }))
 
   const styles = useMemo(
     () =>
@@ -124,9 +249,10 @@ export function CorrectionVideoCompare({
         beforeClip: { position: 'absolute', left: 0, top: 0, bottom: 0, overflow: 'hidden' },
         sliderTrack: {
           position: 'absolute',
+          left: 0,
           top: 0,
           bottom: 0,
-          width: 56,
+          width: HANDLE_HALF * 2,
           alignItems: 'center',
           justifyContent: 'center',
         },
@@ -158,7 +284,7 @@ export function CorrectionVideoCompare({
           gap: 10,
         },
         playHit: { padding: 4, flexShrink: 0 },
-        trackWrap: { flex: 1, justifyContent: 'center', minHeight: 20 },
+        trackWrap: { flex: 1, justifyContent: 'center', paddingVertical: 12 },
         trackBg: {
           height: 6,
           borderRadius: 3,
@@ -170,8 +296,7 @@ export function CorrectionVideoCompare({
           left: 0,
           top: 0,
           bottom: 0,
-          borderTopLeftRadius: 3,
-          borderBottomLeftRadius: 3,
+          borderRadius: 3,
           backgroundColor: SCRUB_TRACK_PLAYED,
         },
         thumb: {
@@ -211,48 +336,41 @@ export function CorrectionVideoCompare({
           style={styles.frame}
         >
           <View style={styles.shell}>
-            <View
-              style={styles.card}
-              onStartShouldSetResponder={() => true}
-              onMoveShouldSetResponder={() => true}
-              onResponderGrant={(e) => setSplit(clamp01(e.nativeEvent.locationX / width))}
-              onResponderMove={(e) => setSplit(clamp01(e.nativeEvent.locationX / width))}
-            >
+            <View style={styles.card}>
               <Video
                 key={`corrected-${videoKey}`}
                 ref={correctedRef}
-                source={{ uri: correctedUri }}
+                source={correctedSource}
                 style={styles.fill}
-                resizeMode={ResizeMode.CONTAIN}
+                resizeMode={ResizeMode.COVER}
                 useNativeControls={false}
                 isLooping
                 isMuted
-                progressUpdateIntervalMillis={100}
+                progressUpdateIntervalMillis={250}
                 onReadyForDisplay={(e) => onNaturalSize(e.naturalSize)}
                 onPlaybackStatusUpdate={handleStatus}
               />
-              <View style={[styles.beforeClip, { width: Math.max(0, split * width) }]}>
+              <Animated.View style={[styles.beforeClip, beforeClipStyle]}>
                 <Video
                   key={`original-${videoKey}`}
                   ref={originalRef}
-                  source={{ uri: originalUri }}
+                  source={originalSource}
                   style={styles.fill}
-                  resizeMode={ResizeMode.CONTAIN}
+                  resizeMode={ResizeMode.COVER}
                   useNativeControls={false}
                   isLooping
                   isMuted
                 />
-              </View>
-              <View
-                pointerEvents="none"
-                style={[styles.sliderTrack, { left: split * width - 28 }]}
-              >
-                <View style={styles.dividerLine} />
-                <View style={styles.handle}>
-                  <FeatherIcon name="chevron-left" size={14} color="#fff" />
-                  <FeatherIcon name="chevron-right" size={14} color="#fff" />
-                </View>
-              </View>
+              </Animated.View>
+              <GestureDetector gesture={splitGesture}>
+                <Animated.View style={[styles.sliderTrack, handleColumnStyle]}>
+                  <View style={styles.dividerLine} />
+                  <View style={styles.handle}>
+                    <FeatherIcon name="chevron-left" size={14} color="#fff" />
+                    <FeatherIcon name="chevron-right" size={14} color="#fff" />
+                  </View>
+                </Animated.View>
+              </GestureDetector>
             </View>
           </View>
         </ProLibraryGradientFrame>
@@ -261,21 +379,19 @@ export function CorrectionVideoCompare({
           <TouchableOpacity style={styles.playHit} onPress={togglePlay} hitSlop={12}>
             <Ionicons name={isPlaying ? 'pause' : 'play'} size={22} color="#FFFFFF" />
           </TouchableOpacity>
-          <View style={styles.trackWrap}>
-            <View style={styles.trackBg}>
-              <View
-                style={[
-                  styles.trackFill,
-                  { width: `${progress * 100}%` },
-                  progress >= 0.998 && {
-                    borderTopRightRadius: 3,
-                    borderBottomRightRadius: 3,
-                  },
-                ]}
-              />
-              <View style={[styles.thumb, { left: `${progress * 100}%` }]} />
+          <GestureDetector gesture={scrubGesture}>
+            <View
+              style={styles.trackWrap}
+              onLayout={(e) => {
+                trackWidthRef.current = e.nativeEvent.layout.width
+              }}
+            >
+              <View style={styles.trackBg}>
+                <Animated.View style={[styles.trackFill, trackFillStyle]} />
+                <Animated.View style={[styles.thumb, thumbStyle]} />
+              </View>
             </View>
-          </View>
+          </GestureDetector>
         </View>
       </View>
     </View>

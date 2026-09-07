@@ -21,6 +21,12 @@ export type TechniqueUploadResult = {
   url?: string
   /** Stable `file://` URI used for upload on native (for carousel thumbnails). */
   localUri?: string
+  /** Encoded frame size the server measured, when it could read it. */
+  width?: number
+  height?: number
+  /** Set when the clip is too small for the AI correction pipeline to work well. */
+  lowResolution?: boolean
+  minRecommendedShortSide?: number
 }
 
 function clampPercent(n: number): number {
@@ -97,6 +103,10 @@ type UploadResponseBody = {
   id?: string
   url?: string
   error?: string
+  width?: number
+  height?: number
+  lowResolution?: boolean
+  minRecommendedShortSide?: number
 }
 
 function parseUploadResponseBody(text: string): UploadResponseBody {
@@ -245,5 +255,9 @@ export async function uploadTechniqueVideo(opts: {
     id: data.id,
     url: data.url,
     localUri: Platform.OS !== 'web' ? uploadUri : undefined,
+    width: data.width,
+    height: data.height,
+    lowResolution: data.lowResolution === true,
+    minRecommendedShortSide: data.minRecommendedShortSide,
   }
 }
